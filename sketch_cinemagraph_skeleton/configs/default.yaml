@@ -1,0 +1,14 @@
+# Placeholder configuration file
+input:
+  structural_sketch_path: data/inputs/structural_sketch/example.png
+  motion_sketch_path: data/inputs/motion_sketch/example.png
+  prompt_path: data/inputs/prompts/example.txt
+
+scene:
+  backend: placeholder
+
+synthesis:
+  num_frames: 60
+
+output:
+  video_path: data/outputs/cinemagraphs/output.gif

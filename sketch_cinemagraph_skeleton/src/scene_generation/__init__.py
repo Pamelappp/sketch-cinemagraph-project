@@ -1,0 +1,1 @@
+"""Scene generation package."""
