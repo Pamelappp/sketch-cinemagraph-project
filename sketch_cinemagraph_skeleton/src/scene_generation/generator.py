@@ -1,6 +1,10 @@
 """Scene generation module for stylized image and realistic reference creation."""
 
+import numpy as np
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+
 from src.types import SceneOutput
+from src.scene_generation.prompt_utils import build_reference_prompt, build_scene_prompt
 
 
 class SceneGenerator:
@@ -15,7 +19,14 @@ class SceneGenerator:
         2. Prepare the actual backend later, such as ControlNet or a placeholder generator.
         3. Keep this class flexible enough to swap different generators.
         """
-        raise NotImplementedError
+        self.cfg = cfg
+        self.backend = cfg.get("backend", "placeholder")
+        self.image_size = tuple(cfg.get("image_size", [512, 512]))
+        self.seed = int(cfg.get("seed", 42))
+        self.save_reference = bool(cfg.get("save_reference", True))
+
+        # Keep the random generator local and deterministic for repeatable demos.
+        self.rng = np.random.default_rng(self.seed)
 
     def generate(self, structural_sketch, text_prompt: str) -> SceneOutput:
         """
@@ -27,7 +38,16 @@ class SceneGenerator:
         3. Call generate_reference().
         4. Wrap both outputs into SceneOutput.
         """
-        raise NotImplementedError
+        stylized_image = self.generate_stylized(structural_sketch, text_prompt)
+
+        realistic_reference = None
+        if self.save_reference:
+            realistic_reference = self.generate_reference(structural_sketch, text_prompt)
+
+        return SceneOutput(
+            stylized_image=stylized_image,
+            realistic_reference=realistic_reference,
+        )
 
     def generate_stylized(self, structural_sketch, text_prompt: str):
         """
@@ -38,7 +58,28 @@ class SceneGenerator:
         2. Feed structural sketch + prompt into the selected generator.
         3. Return the synthesized stylized image.
         """
-        raise NotImplementedError
+        # The prompt is built here so the method keeps the same shape as a real generator.
+        _ = build_scene_prompt(text_prompt)
+
+        image = self.preprocess_sketch(structural_sketch)
+        pil_image = Image.fromarray(image)
+
+        # Smooth rough sketch strokes and increase contrast for a stylized look.
+        pil_image = pil_image.filter(ImageFilter.SMOOTH_MORE)
+        pil_image = ImageEnhance.Contrast(pil_image).enhance(1.35)
+        pil_image = ImageEnhance.Color(pil_image).enhance(1.25)
+
+        array = np.asarray(pil_image).astype(np.float32)
+
+        # Add a simple landscape-like tint while preserving the sketch layout.
+        tint = np.array([1.05, 1.12, 0.92], dtype=np.float32)
+        array = array * tint
+
+        # Add a tiny deterministic warm variation so the placeholder is less flat.
+        noise = self.rng.normal(loc=0.0, scale=3.0, size=array.shape)
+        array = array + noise
+
+        return np.clip(array, 0, 255).astype(np.uint8)
 
     def generate_reference(self, structural_sketch, text_prompt: str):
         """
@@ -49,7 +90,30 @@ class SceneGenerator:
         2. Reuse the same structural sketch to preserve layout consistency.
         3. Return a realistic-looking image that aligns with the stylized result.
         """
-        raise NotImplementedError
+        # Build the reference prompt for future real backends; the placeholder ignores it.
+        _ = build_reference_prompt(text_prompt)
+
+        image = self.preprocess_sketch(structural_sketch)
+        pil_image = Image.fromarray(image)
+
+        # Make a cleaner neutral reference that keeps the same layout.
+        gray = ImageOps.grayscale(pil_image)
+        gray = gray.filter(ImageFilter.SMOOTH)
+        gray = ImageEnhance.Contrast(gray).enhance(1.15)
+
+        gray_array = np.asarray(gray).astype(np.float32)
+
+        # Map grayscale sketch values into a muted natural RGB palette.
+        reference = np.stack(
+            [
+                gray_array * 0.95 + 12.0,
+                gray_array * 1.02 + 18.0,
+                gray_array * 1.08 + 22.0,
+            ],
+            axis=-1,
+        )
+
+        return np.clip(reference, 0, 255).astype(np.uint8)
 
     def preprocess_sketch(self, structural_sketch):
         """
@@ -60,4 +124,29 @@ class SceneGenerator:
         2. Normalize pixel values if the backend requires it.
         3. Keep line strokes sharp enough for structural control.
         """
-        raise NotImplementedError
+        array = np.asarray(structural_sketch)
+
+        if array.ndim == 2:
+            pil_image = Image.fromarray(_to_uint8(array)).convert("RGB")
+        elif array.ndim == 3:
+            pil_image = Image.fromarray(_to_uint8(array)).convert("RGB")
+        else:
+            raise ValueError("Structural sketch must be a 2D or 3D image array.")
+
+        # PIL uses size as (width, height). Config image_size is stored the same way here.
+        pil_image = pil_image.resize(self.image_size, Image.Resampling.BILINEAR)
+
+        return np.asarray(pil_image)
+
+
+def _to_uint8(image: np.ndarray) -> np.ndarray:
+    """Convert image data to uint8 so PIL can process it safely."""
+    array = np.asarray(image)
+
+    if array.dtype == np.uint8:
+        return array
+
+    if np.issubdtype(array.dtype, np.floating) and array.size > 0 and array.max() <= 1.0:
+        array = array * 255.0
+
+    return np.clip(array, 0, 255).astype(np.uint8)
