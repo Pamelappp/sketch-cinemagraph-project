@@ -165,7 +165,12 @@ class _GroundedSAMBackend:
         )
 
         self._torch = torch
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        if torch.cuda.is_available():
+            self.device = "cuda"
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            self.device = "mps"
+        else:
+            self.device = "cpu"
 
         self.dino_processor = AutoProcessor.from_pretrained(_DINO_MODEL_ID)
         self.dino_model = (
