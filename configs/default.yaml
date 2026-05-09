@@ -1,0 +1,19 @@
+input:
+  structural_sketch_path: data/inputs/structural_sketch/example.png
+  motion_sketch_path: data/inputs/motion_sketch/example.png
+  prompt_path: data/inputs/prompts/example.txt
+
+scene:
+  backend: placeholder
+  image_size: [512, 512]
+  seed: 42
+  save_reference: true
+
+synthesis:
+  num_frames: 60
+
+output:
+  stylized_image_path: data/outputs/scene/stylized_image.png
+  realistic_reference_path: data/outputs/scene/realistic_reference.png
+  debug_dir: data/outputs/debug
+  final_video_path: data/outputs/cinemagraphs/output.gif
