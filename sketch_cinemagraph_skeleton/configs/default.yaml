@@ -11,6 +11,7 @@ scene:
 
 synthesis:
   num_frames: 60
+  fps: 20
 
 output:
   stylized_image_path: data/outputs/scene/stylized_image.png
