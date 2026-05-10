@@ -1,29 +1,28 @@
 input:
-  structural_sketch_path: data/inputs/structural_sketch/example.png
-  motion_sketch_path: data/inputs/motion_sketch/example.png
-  prompt_path: data/inputs/prompts/example.txt
+  structural_sketch_path: data/inputs/structural_sketch/lake.png
+  motion_sketch_path: data/inputs/motion_sketch/lake.png
+  prompt_path: data/inputs/prompts/lake.txt
 
 scene:
   backend: diffusion
-  image_size: [512, 512]
+  image_size: [768, 512]
   seed: 42
   save_reference: true
 
-  # diffusion backend
   model_id: runwayml/stable-diffusion-v1-5
-  controlnet_id: lllyasviel/sd-controlnet-canny
-  num_inference_steps: 30
-  guidance_scale: 7.5
-  controlnet_conditioning_scale: 1.0
+  controlnet_id: lllyasviel/control_v11p_sd15_lineart
+  num_inference_steps: 25
+  guidance_scale: 6.5
+  controlnet_conditioning_scale: 0.8
   enable_cpu_offload: true
-  negative_prompt: "low quality, blurry, distorted, extra objects, messy composition"
+  negative_prompt: "low quality, blurry, distorted, repeated texture, mosaic pattern, extra objects, messy composition"
 
 synthesis:
   num_frames: 60
   fps: 20
 
 output:
-  stylized_image_path: data/outputs/scene/stylized_image.png
-  realistic_reference_path: data/outputs/scene/realistic_reference.png
-  debug_dir: data/outputs/debug
-  final_video_path: data/outputs/cinemagraphs/output.gif
+  stylized_image_path: data/outputs/scene/stylized_image1.png
+  realistic_reference_path: data/outputs/scene/realistic_reference1.png
+  debug_dir: data/outputs/debug1
+  final_video_path: data/outputs/cinemagraphs/output1.gif
