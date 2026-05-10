@@ -1,38 +1,98 @@
 """Convert parsed strokes into sparse vector constraints for motion propagation."""
 
+from __future__ import annotations
+
+import numpy as np
+
 
 def build_sparse_constraints(strokes, mask):
     """
-    Convert motion strokes into sparse directional constraints restricted to the fluid mask.
+    Combine the per-stroke point/vector pairs into a single dictionary of
+    sparse motion constraints, restricted to pixels inside the fluid mask.
 
-    Detailed TODO:
-    1. Convert each stroke to local vectors.
-    2. Collect all point/vector pairs from all strokes.
-    3. Keep only valid constraints inside the fluid mask.
-    4. Return a dict such as {points, vectors}.
+    The returned dictionary is shaped for downstream propagation:
+        {
+            "points":  np.ndarray (M, 2) int32  -- (y, x) image coordinates
+            "vectors": np.ndarray (M, 2) float32 -- (dx, dy) flow vectors
+        }
     """
-    raise NotImplementedError
+    if not strokes:
+        return _empty_constraints()
+
+    all_points = []
+    all_vectors = []
+    for stroke in strokes:
+        points, vectors = stroke_to_vectors(stroke)
+        if len(points) == 0:
+            continue
+        all_points.append(points)
+        all_vectors.append(vectors)
+
+    if not all_points:
+        return _empty_constraints()
+
+    points = np.concatenate(all_points, axis=0)
+    vectors = np.concatenate(all_vectors, axis=0)
+
+    points, vectors = filter_constraints_by_mask(points, vectors, mask)
+    if len(points) == 0:
+        return _empty_constraints()
+
+    return {
+        "points": points.astype(np.int32),
+        "vectors": vectors.astype(np.float32),
+    }
 
 
 def stroke_to_vectors(stroke):
     """
-    Convert a single stroke polyline into point-wise motion vectors.
+    Convert a single ordered stroke polyline into per-point motion vectors.
 
-    Detailed TODO:
-    1. Compute the direction from one sampled point to the next.
-    2. Store the current point as the anchor and the difference as the vector.
-    3. Return point/vector arrays for this stroke.
+    Centred finite differences are used along the interior of the stroke,
+    falling back to forward/backward differences at the endpoints. The input
+    is shape ``(N, 2)`` ``(y, x)``; the returned vectors are stored as
+    ``(dx, dy)`` to align with the dense flow channel order used by
+    ``cv2.remap``.
     """
-    raise NotImplementedError
+    stroke = np.asarray(stroke, dtype=np.float32)
+    if stroke.ndim != 2 or stroke.shape[0] < 2 or stroke.shape[1] != 2:
+        return np.zeros((0, 2), dtype=np.int32), np.zeros((0, 2), dtype=np.float32)
+
+    n = stroke.shape[0]
+    deltas = np.zeros_like(stroke)
+    deltas[1:-1] = (stroke[2:] - stroke[:-2]) * 0.5
+    deltas[0] = stroke[1] - stroke[0]
+    deltas[-1] = stroke[-1] - stroke[-2]
+
+    vectors = np.zeros_like(deltas)
+    vectors[:, 0] = deltas[:, 1]
+    vectors[:, 1] = deltas[:, 0]
+
+    points = np.rint(stroke).astype(np.int32)
+    return points, vectors.astype(np.float32)
 
 
 def filter_constraints_by_mask(points, vectors, mask):
     """
-    Keep only sparse motion constraints that lie inside valid fluid regions.
-
-    Detailed TODO:
-    1. Check whether each point falls inside mask == 1.
-    2. Discard points outside fluid regions.
-    3. Return filtered points and vectors.
+    Drop constraints whose anchor points fall outside the fluid mask.
     """
-    raise NotImplementedError
+    if len(points) == 0:
+        return np.zeros((0, 2), dtype=np.int32), np.zeros((0, 2), dtype=np.float32)
+
+    mask_array = np.asarray(mask)
+    if mask_array.ndim == 3:
+        mask_array = mask_array[:, :, 0]
+
+    h, w = mask_array.shape[:2]
+    ys = np.clip(points[:, 0], 0, h - 1)
+    xs = np.clip(points[:, 1], 0, w - 1)
+    inside = mask_array[ys, xs] > 0
+
+    return points[inside], vectors[inside]
+
+
+def _empty_constraints():
+    return {
+        "points": np.zeros((0, 2), dtype=np.int32),
+        "vectors": np.zeros((0, 2), dtype=np.float32),
+    }
