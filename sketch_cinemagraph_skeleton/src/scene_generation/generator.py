@@ -63,20 +63,19 @@ class SceneGenerator:
             pil_image = Image.fromarray(array.astype(np.uint8)).convert("RGB")
         else:
             raise ValueError("Structural sketch must be a 2D or 3D image array.")
+
         pil_image = pil_image.resize(self.image_size, Image.Resampling.BILINEAR)
         return np.asarray(pil_image)
 
     def prepare_control_image(self, structural_sketch):
         image = self.preprocess_sketch(structural_sketch)
-        pil_image = Image.fromarray(image).convert("L")
 
-        # strengthen line structure
+        pil_image = Image.fromarray(image).convert("L")
         pil_image = ImageOps.autocontrast(pil_image)
         pil_image = ImageEnhance.Contrast(pil_image).enhance(2.2)
 
-        # optional light binarization effect
         arr = np.asarray(pil_image)
-        arr = np.where(arr > 200, 255, arr)
-        pil_image = Image.fromarray(arr.astype(np.uint8)).convert("RGB")
+        arr = np.where(arr > 200, 255, arr).astype(np.uint8)
 
+        pil_image = Image.fromarray(arr).convert("RGB")
         return pil_image

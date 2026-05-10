@@ -1,7 +1,7 @@
 input:
-  structural_sketch_path: data/inputs/structural_sketch/lake.png
-  motion_sketch_path: data/inputs/motion_sketch/lake.png
-  prompt_path: data/inputs/prompts/lake.txt
+  structural_sketch_path: data/inputs/structural_sketch/smoke.png
+  motion_sketch_path: data/inputs/motion_sketch/smoke.png
+  prompt_path: data/inputs/prompts/smoke.txt
 
 scene:
   backend: diffusion
@@ -10,7 +10,7 @@ scene:
   save_reference: true
 
   model_id: runwayml/stable-diffusion-v1-5
-  controlnet_id: lllyasviel/control_v11p_sd15_lineart
+  controlnet_id: lllyasviel/control_v11p_sd15_scribble
   num_inference_steps: 25
   guidance_scale: 6.5
   controlnet_conditioning_scale: 0.8
@@ -22,7 +22,7 @@ synthesis:
   fps: 20
 
 output:
-  stylized_image_path: data/outputs/scene/stylized_image1.png
-  realistic_reference_path: data/outputs/scene/realistic_reference1.png
-  debug_dir: data/outputs/debug1
-  final_video_path: data/outputs/cinemagraphs/output1.gif
+  stylized_image_path: data/outputs/scene/stylized_image_smoke.png
+  realistic_reference_path: data/outputs/scene/realistic_reference_smoke.png
+  debug_dir: data/outputs/debug
+  final_video_path: data/outputs/cinemagraphs/output_smoke.gif
