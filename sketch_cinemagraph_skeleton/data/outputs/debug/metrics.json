@@ -1,5 +1,5 @@
 {
-    "motion_smoothness": 0.0004640583647415042,
+    "motion_smoothness": 0.00046405280590988696,
     "loop_consistency": 0.0,
-    "mask_leakage": 0.003952212631702423
+    "mask_leakage": 0.08872856199741364
 }

@@ -4,10 +4,19 @@ input:
   prompt_path: data/inputs/prompts/example.txt
 
 scene:
-  backend: placeholder
+  backend: diffusion
   image_size: [512, 512]
   seed: 42
   save_reference: true
+
+  # diffusion backend
+  model_id: runwayml/stable-diffusion-v1-5
+  controlnet_id: lllyasviel/sd-controlnet-canny
+  num_inference_steps: 30
+  guidance_scale: 7.5
+  controlnet_conditioning_scale: 1.0
+  enable_cpu_offload: true
+  negative_prompt: "low quality, blurry, distorted, extra objects, messy composition"
 
 synthesis:
   num_frames: 60
