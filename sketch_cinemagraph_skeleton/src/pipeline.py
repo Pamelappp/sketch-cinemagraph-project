@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import cv2
+import numpy as np
+
 from src.types import UserInput
 from src.scene_generation.generator import SceneGenerator
 from src.fluid_mask.semantic_mask import build_semantic_mask
@@ -19,16 +22,21 @@ from src.evaluation.metrics import (
 )
 
 
+def _resize_to_match(array, target_hw, is_mask=False):
+    """
+    Resize any image/mask to match target (height, width).
+    """
+    target_h, target_w = target_hw
+    if array.shape[:2] == (target_h, target_w):
+        return array
+
+    interp = cv2.INTER_NEAREST if is_mask else cv2.INTER_LINEAR
+    return cv2.resize(array, (target_w, target_h), interpolation=interp)
+
+
 class CinemagraphPipeline:
     """
     Simplified end-to-end pipeline for the course project.
-
-    Stages:
-    1. Scene generation
-    2. Fluid mask extraction
-    3. Motion field estimation
-    4. Cinemagraph synthesis
-    5. Basic evaluation
     """
 
     def __init__(self, cfg: dict) -> None:
@@ -62,9 +70,21 @@ class CinemagraphPipeline:
         }
 
     def _fluid_mask_extraction(self, user_input: UserInput, scene_out: dict) -> dict:
+        """
+        Build semantic / refined / final mask, all aligned to the scene image size.
+        """
+        h, w = scene_out["stylized_image"].shape[:2]
+
+        structural_sketch = _resize_to_match(
+            user_input.structural_sketch, (h, w), is_mask=False
+        )
+        motion_sketch = _resize_to_match(
+            user_input.motion_sketch, (h, w), is_mask=False
+        )
+
         semantic_mask = build_semantic_mask(
-            structural_sketch=user_input.structural_sketch,
-            motion_sketch=user_input.motion_sketch,
+            structural_sketch=structural_sketch,
+            motion_sketch=motion_sketch,
         )
 
         try:
@@ -76,6 +96,8 @@ class CinemagraphPipeline:
             print(f"[Warning] refine_fluid_mask failed, fallback to semantic mask only: {error}")
             refined_mask = semantic_mask.copy()
 
+        refined_mask = _resize_to_match(refined_mask, (h, w), is_mask=True)
+
         final_fluid_mask = combine_masks(
             semantic_mask=semantic_mask,
             refined_mask=refined_mask,
@@ -85,10 +107,16 @@ class CinemagraphPipeline:
             "semantic_mask": semantic_mask,
             "refined_mask": refined_mask,
             "final_fluid_mask": final_fluid_mask,
+            "resized_motion_sketch": motion_sketch,
         }
 
     def _motion_field_estimation(self, user_input: UserInput, mask_out: dict) -> dict:
-        strokes = parse_motion_sketch(user_input.motion_sketch)
+        """
+        Use the resized motion sketch so flow matches scene size.
+        """
+        motion_sketch = mask_out.get("resized_motion_sketch", user_input.motion_sketch)
+
+        strokes = parse_motion_sketch(motion_sketch)
 
         sparse_constraints = build_sparse_constraints(
             strokes=strokes,
