@@ -1,1 +1,0 @@
-"""Cinemagraph synthesis package."""

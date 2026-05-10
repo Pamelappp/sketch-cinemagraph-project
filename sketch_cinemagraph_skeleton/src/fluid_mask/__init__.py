@@ -1,1 +1,0 @@
-"""Fluid mask extraction package."""
