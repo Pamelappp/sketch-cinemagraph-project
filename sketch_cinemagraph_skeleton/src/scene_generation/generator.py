@@ -12,7 +12,7 @@ class SceneGenerator:
     def __init__(self, cfg: dict) -> None:
         self.cfg = cfg
         self.backend = cfg.get("backend", "placeholder")
-        self.image_size = tuple(cfg.get("image_size", [512, 512]))
+        self.image_size = cfg.get("image_size", None)   # allow null
         self.seed = int(cfg.get("seed", 42))
         self.save_reference = bool(cfg.get("save_reference", True))
 
@@ -57,6 +57,7 @@ class SceneGenerator:
 
     def preprocess_sketch(self, structural_sketch):
         array = np.asarray(structural_sketch)
+
         if array.ndim == 2:
             pil_image = Image.fromarray(array.astype(np.uint8)).convert("RGB")
         elif array.ndim == 3:
@@ -64,7 +65,16 @@ class SceneGenerator:
         else:
             raise ValueError("Structural sketch must be a 2D or 3D image array.")
 
-        pil_image = pil_image.resize(self.image_size, Image.Resampling.BILINEAR)
+        # If config provides image_size, use it.
+        # Otherwise inherit from input sketch and align to multiples of 8.
+        if self.image_size is not None:
+            target_w, target_h = self.image_size
+        else:
+            orig_w, orig_h = pil_image.size
+            target_w = _round_to_multiple_of_8(orig_w)
+            target_h = _round_to_multiple_of_8(orig_h)
+
+        pil_image = pil_image.resize((target_w, target_h), Image.Resampling.BILINEAR)
         return np.asarray(pil_image)
 
     def prepare_control_image(self, structural_sketch):
@@ -79,3 +89,7 @@ class SceneGenerator:
 
         pil_image = Image.fromarray(arr).convert("RGB")
         return pil_image
+
+
+def _round_to_multiple_of_8(value: int) -> int:
+    return max(8, int(round(value / 8.0)) * 8)

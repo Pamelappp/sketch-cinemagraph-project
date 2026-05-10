@@ -1,11 +1,11 @@
 input:
-  structural_sketch_path: data/inputs/structural_sketch/smoke.png
-  motion_sketch_path: data/inputs/motion_sketch/smoke.png
-  prompt_path: data/inputs/prompts/smoke.txt
+  structural_sketch_path: data/inputs/structural_sketch/village.png
+  motion_sketch_path: data/inputs/motion_sketch/village.png
+  prompt_path: data/inputs/prompts/village.txt
 
 scene:
   backend: diffusion
-  image_size: [768, 512]
+  image_size: null
   seed: 42
   save_reference: true
 
@@ -22,7 +22,7 @@ synthesis:
   fps: 20
 
 output:
-  stylized_image_path: data/outputs/scene/stylized_image_smoke.png
-  realistic_reference_path: data/outputs/scene/realistic_reference_smoke.png
+  stylized_image_path: data/outputs/scene/stylized_image_village.png
+  realistic_reference_path: data/outputs/scene/realistic_reference_village.png
   debug_dir: data/outputs/debug
-  final_video_path: data/outputs/cinemagraphs/output_smoke.gif
+  final_video_path: data/outputs/cinemagraphs/output_village.gif
