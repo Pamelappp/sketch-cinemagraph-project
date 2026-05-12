@@ -16,16 +16,36 @@ def build_semantic_mask(structural_sketch, motion_sketch):
     """
     Create a preliminary fluid-region mask based on sketch-defined motion areas.
 
-    Pipeline: connected-component segmentation of the structural sketch produces
-    closed candidate regions; motion-stroke overlap then selects which of those
-    regions are intended to animate. If no closed regions are recovered, the
-    dilated motion strokes themselves are returned as a fallback.
+    Pipeline:
+    1. Compute zone_top from the topmost motion stroke.  Everything above this
+       line is erased from the candidate interior map before connected-component
+       analysis, so buildings (above the water zone) are never candidates and
+       the sky/background never bleeds into the fluid region.
+    2. Connected-component segmentation inside the zone produces the water-area
+       strips enclosed by structural wave lines.
+    3. Motion-stroke overlap confirms which regions are fluid.
+    4. Morphological closing fills gaps between wave-line strips into a solid
+       water-body mask.
     """
     structural_array = _to_uint8(structural_sketch)
     motion_array = _to_uint8(motion_sketch)
     motion_array = _resize_to(motion_array, structural_array.shape[:2])
 
-    candidate_regions = extract_candidate_regions(structural_array)
+    h = structural_array.shape[0]
+
+    motion_gray = _to_grayscale(motion_array)
+    motion_stroke_bin = (motion_gray < _STROKE_THRESHOLD).astype(np.uint8)
+    motion_ys = np.argwhere(motion_stroke_bin > 0)[:, 0]
+
+    if motion_ys.size == 0:
+        return _stroke_fallback_mask(motion_array)
+
+    # Start zone slightly above the topmost motion stroke so we capture the
+    # full water body without including buildings or sky above.
+    margin = max(h // 10, 10)
+    zone_top = max(0, int(motion_ys.min()) - margin)
+
+    candidate_regions = extract_candidate_regions(structural_array, zone_top=zone_top)
 
     if candidate_regions.max() == 0:
         return _stroke_fallback_mask(motion_array)
@@ -35,15 +55,24 @@ def build_semantic_mask(structural_sketch, motion_sketch):
     if int(mask.sum()) == 0:
         return _stroke_fallback_mask(motion_array)
 
+    # Fill gaps between individual wave-line strips to produce a solid water body.
+    close_size = max(max(structural_array.shape[:2]) // 20, 5)
+    close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (close_size, close_size))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, close_kernel)
+
     return mask
 
 
-def extract_candidate_regions(structural_sketch):
+def extract_candidate_regions(structural_sketch, zone_top=0):
     """
-    Identify candidate semantic regions enclosed by ink strokes in the structural sketch.
+    Identify candidate semantic regions inside the fluid zone of the structural sketch.
 
-    Returns a 2-D int32 label image with the same H x W as the input. Label 0 marks
-    background pixels (image border, ink, or regions too small to keep).
+    Args:
+        structural_sketch: the structural line drawing.
+        zone_top: row index above which all pixels are treated as non-candidates.
+            Pixels above this line are erased from the interior map so that the
+            sky/land background region cannot bleed into the water candidates.
+            Buildings that sit above zone_top are also excluded automatically.
     """
     gray = _to_grayscale(structural_sketch)
     height, width = gray.shape
@@ -53,27 +82,23 @@ def extract_candidate_regions(structural_sketch):
     ink = cv2.dilate(ink, kernel, iterations=1)
 
     interior = (1 - ink).astype(np.uint8)
-    num_labels, labels = cv2.connectedComponents(interior, connectivity=4)
 
-    border_labels = set()
-    border_labels.update(np.unique(labels[0, :]).tolist())
-    border_labels.update(np.unique(labels[-1, :]).tolist())
-    border_labels.update(np.unique(labels[:, 0]).tolist())
-    border_labels.update(np.unique(labels[:, -1]).tolist())
-    border_labels.add(0)
+    # Erase everything above the zone — buildings and sky cease to exist as
+    # candidates, so no border-exclusion heuristic is needed.
+    if zone_top > 0:
+        interior[:zone_top, :] = 0
+
+    num_labels, labels = cv2.connectedComponents(interior, connectivity=4)
 
     min_area = max(int(_MIN_REGION_FRACTION * height * width), 1)
     output = np.zeros_like(labels, dtype=np.int32)
     next_label = 1
 
     for label_id in range(1, num_labels):
-        if label_id in border_labels:
-            continue
         region_pixels = labels == label_id
-        if int(region_pixels.sum()) < min_area:
-            continue
-        output[region_pixels] = next_label
-        next_label += 1
+        if int(region_pixels.sum()) >= min_area:
+            output[region_pixels] = next_label
+            next_label += 1
 
     return output
 
@@ -99,15 +124,6 @@ def associate_motion_with_regions(candidate_regions, motion_sketch):
         region = candidate_regions == label_id
         overlap = int(np.logical_and(region, stroke_bool).sum())
         if overlap >= _MIN_OVERLAP_PIXELS:
-            fluid_mask[region] = 255
-            continue
-
-        ys, xs = np.where(stroke_bool)
-        if ys.size == 0:
-            continue
-        cy = int(round(ys.mean()))
-        cx = int(round(xs.mean()))
-        if 0 <= cy < region.shape[0] and 0 <= cx < region.shape[1] and region[cy, cx]:
             fluid_mask[region] = 255
 
     return fluid_mask

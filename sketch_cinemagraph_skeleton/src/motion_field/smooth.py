@@ -6,8 +6,8 @@ import numpy as np
 from scipy.ndimage import gaussian_filter
 
 
-_GAUSSIAN_SIGMA = 2.0
-_DEFAULT_MAX_MAGNITUDE = 8.0
+_GAUSSIAN_SIGMA = 5.0
+_DEFAULT_MAX_MAGNITUDE = 1.5
 
 
 def smooth_motion_field(flow, mask):

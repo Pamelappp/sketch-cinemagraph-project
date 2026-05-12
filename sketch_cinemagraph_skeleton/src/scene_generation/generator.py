@@ -13,8 +13,11 @@ class SceneGenerator:
         self.cfg = cfg
         self.backend = cfg.get("backend", "placeholder")
         self.image_size = cfg.get("image_size", None)   # allow null
-        self.seed = int(cfg.get("seed", 42))
+        raw_seed = cfg.get("seed", 42)
+        self.seed = None if raw_seed is None else int(raw_seed)
         self.save_reference = bool(cfg.get("save_reference", True))
+
+        self.style_prompt = cfg.get("style_prompt") or None
 
         self.diffusion_backend = None
         if self.backend == "diffusion":
@@ -38,7 +41,7 @@ class SceneGenerator:
         )
 
     def generate_stylized_diffusion(self, structural_sketch, text_prompt: str):
-        prompt = build_scene_prompt(text_prompt)
+        prompt = build_scene_prompt(text_prompt, style_prompt=self.style_prompt)
         control_image = self.prepare_control_image(structural_sketch)
         return self.diffusion_backend.generate(prompt, control_image)
 

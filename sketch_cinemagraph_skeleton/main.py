@@ -64,10 +64,13 @@ def main() -> None:
     print(f"Debug folder:        {debug_dir}")
     print(f"Metrics saved to:    {metrics_path}")
     print()
-    print("=== Simple Metrics ===")
-    print(f"Motion smoothness: {metrics['motion_smoothness']:.6f}  (lower is better)")
-    print(f"Loop consistency:  {metrics['loop_consistency']:.6f}  (lower is better)")
-    print(f"Mask leakage:      {metrics['mask_leakage']:.6f}  (lower is better)")
+    print("=== Metrics ===")
+    print(f"Motion smoothness:        {metrics['motion_smoothness']:.6f}  (lower is better)")
+    print(f"Loop consistency (MSE):   {metrics['loop_consistency']:.6f}  (lower is better)")
+    print(f"Mask leakage:             {metrics['mask_leakage']:.6f}  (lower is better)")
+    print(f"Loop PSNR:                {metrics['psnr_loop']:.4f} dB  (higher is better)")
+    print(f"Loop SSIM:                {metrics['ssim_loop']:.4f}     (higher is better)")
+    print(f"Temporal consistency:     {metrics['temporal_consistency_psnr']:.4f} dB  (higher is better)")
 
 
 if __name__ == "__main__":

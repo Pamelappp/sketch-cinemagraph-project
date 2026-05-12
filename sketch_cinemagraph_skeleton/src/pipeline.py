@@ -12,6 +12,7 @@ from src.motion_field.sketch_parser import parse_motion_sketch
 from src.motion_field.sparse_constraints import build_sparse_constraints
 from src.motion_field.propagate import propagate_sparse_to_dense
 from src.motion_field.smooth import smooth_motion_field
+from src.motion_field.t2c_flow_predictor import T2CFlowPredictor
 from src.synthesis.warp import warp_frames
 from src.synthesis.loop import temporal_smooth_frames, blend_loop_boundary, enforce_loop
 from src.synthesis.export_video import export_cinemagraph
@@ -19,6 +20,9 @@ from src.evaluation.metrics import (
     compute_motion_smoothness,
     compute_loop_consistency,
     compute_mask_leakage,
+    compute_psnr,
+    compute_ms_ssim_loop,
+    compute_temporal_consistency,
 )
 
 
@@ -46,7 +50,7 @@ class CinemagraphPipeline:
     def run(self, user_input: UserInput) -> dict:
         scene_out = self._scene_generation(user_input)
         mask_out = self._fluid_mask_extraction(user_input, scene_out)
-        motion_out = self._motion_field_estimation(user_input, mask_out)
+        motion_out = self._motion_field_estimation(user_input, scene_out, mask_out)
         synth_out = self._cinemagraph_synthesis(scene_out, mask_out, motion_out)
         metrics = self._evaluate_outputs(mask_out, motion_out, synth_out)
 
@@ -91,6 +95,7 @@ class CinemagraphPipeline:
             refined_mask = refine_fluid_mask(
                 image=scene_out["stylized_image"],
                 text_prompt=user_input.text_prompt,
+                fluid_prompt=user_input.fluid_prompt,
             )
         except Exception as error:
             print(f"[Warning] refine_fluid_mask failed, fallback to semantic mask only: {error}")
@@ -110,28 +115,47 @@ class CinemagraphPipeline:
             "resized_motion_sketch": motion_sketch,
         }
 
-    def _motion_field_estimation(self, user_input: UserInput, mask_out: dict) -> dict:
+    def _motion_field_estimation(
+        self, user_input: UserInput, scene_out: dict, mask_out: dict
+    ) -> dict:
         """
         Use the resized motion sketch so flow matches scene size.
+
+        Tries the T2C neural predictor first (when a checkpoint is configured);
+        falls back to RBF sparse-to-dense propagation otherwise.
         """
         motion_sketch = mask_out.get("resized_motion_sketch", user_input.motion_sketch)
+        mask = mask_out["final_fluid_mask"]
 
         strokes = parse_motion_sketch(motion_sketch)
+        sparse_constraints = build_sparse_constraints(strokes=strokes, mask=mask)
 
-        sparse_constraints = build_sparse_constraints(
-            strokes=strokes,
-            mask=mask_out["final_fluid_mask"],
-        )
+        # ── Try T2C learned predictor ─────────────────────────────────────────
+        t2c_ckpt = self.cfg.get("motion_field", {}).get("t2c_checkpoint")
+        t2c = T2CFlowPredictor(checkpoint_path=t2c_ckpt)
 
-        dense_motion_field = propagate_sparse_to_dense(
-            constraints=sparse_constraints,
-            mask=mask_out["final_fluid_mask"],
-        )
+        dense_motion_field = None
+        if t2c.is_available():
+            try:
+                dense_motion_field = t2c.predict(
+                    reference_image=scene_out["stylized_image"],
+                    fluid_mask=mask,
+                    motion_sketch=motion_sketch,
+                )
+                print("[Pipeline] Motion field: T2C neural predictor")
+            except Exception as err:
+                print(f"[Warning] T2C predictor failed ({err}), falling back to RBF")
+                dense_motion_field = None
 
-        dense_motion_field = smooth_motion_field(
-            flow=dense_motion_field,
-            mask=mask_out["final_fluid_mask"],
-        )
+        # ── Fallback: RBF sparse-to-dense ────────────────────────────────────
+        if dense_motion_field is None:
+            dense_motion_field = propagate_sparse_to_dense(
+                constraints=sparse_constraints,
+                mask=mask,
+            )
+            print("[Pipeline] Motion field: RBF sparse-to-dense")
+
+        dense_motion_field = smooth_motion_field(flow=dense_motion_field, mask=mask)
 
         return {
             "strokes": strokes,
@@ -168,22 +192,17 @@ class CinemagraphPipeline:
         }
 
     def _evaluate_outputs(self, mask_out: dict, motion_out: dict, synth_out: dict) -> dict:
-        motion_smoothness = compute_motion_smoothness(
-            motion_out["dense_motion_field"],
-            mask_out["final_fluid_mask"],
-        )
-
-        loop_consistency = compute_loop_consistency(
-            synth_out["frames"],
-        )
-
-        mask_leakage = compute_mask_leakage(
-            synth_out["frames"],
-            mask_out["final_fluid_mask"],
-        )
+        frames = synth_out["frames"]
+        flow = motion_out["dense_motion_field"]
+        mask = mask_out["final_fluid_mask"]
 
         return {
-            "motion_smoothness": motion_smoothness,
-            "loop_consistency": loop_consistency,
-            "mask_leakage": mask_leakage,
+            # ── original metrics ──────────────────────────────
+            "motion_smoothness": compute_motion_smoothness(flow, mask),
+            "loop_consistency": compute_loop_consistency(frames),
+            "mask_leakage": compute_mask_leakage(frames, mask),
+            # ── standard metrics (no GT needed) ───────────────
+            "psnr_loop": compute_psnr(frames[0], frames[-1]),
+            "ssim_loop": compute_ms_ssim_loop(frames),
+            "temporal_consistency_psnr": compute_temporal_consistency(frames),
         }

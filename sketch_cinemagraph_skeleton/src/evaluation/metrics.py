@@ -1,15 +1,23 @@
-"""Evaluation metrics for motion quality and cinemagraph output quality."""
+"""Evaluation metrics for motion quality and cinemagraph output quality.
+
+Original metrics (motion_smoothness, loop_consistency, mask_leakage) are kept
+unchanged.  New standard metrics added to match the paper's evaluation protocol:
+
+  Frame quality  : compute_psnr, compute_ms_ssim
+  Video quality  : compute_temporal_consistency  (avg inter-frame PSNR)
+  Flow quality   : compute_flow_aepe, compute_flow_mse  (need GT flow)
+"""
+
+from __future__ import annotations
 
 import numpy as np
 
 
+# ── Original metrics ──────────────────────────────────────────────────────────
+
 def compute_motion_smoothness(flow, mask):
     """
     Measure whether the dense motion field changes smoothly inside valid fluid regions.
-
-    Args:
-        flow: H x W x 2 dense motion field
-        mask: H x W binary / grayscale fluid mask
 
     Returns:
         smoothness_score: scalar, lower means smoother flow
@@ -20,103 +28,186 @@ def compute_motion_smoothness(flow, mask):
         mask_2d = mask
 
     valid = mask_2d > 0
-
     if np.sum(valid) == 0:
         return 0.0
 
     fx = flow[:, :, 0]
     fy = flow[:, :, 1]
 
-    # Neighbor differences in x and y directions
     diff_x_fx = fx[:, 1:] - fx[:, :-1]
     diff_y_fx = fx[1:, :] - fx[:-1, :]
-
     diff_x_fy = fy[:, 1:] - fy[:, :-1]
     diff_y_fy = fy[1:, :] - fy[:-1, :]
 
-    # Valid neighbor masks
     valid_x = valid[:, 1:] & valid[:, :-1]
     valid_y = valid[1:, :] & valid[:-1, :]
 
     values = []
-
     if np.any(valid_x):
         values.append(diff_x_fx[valid_x] ** 2)
         values.append(diff_x_fy[valid_x] ** 2)
-
     if np.any(valid_y):
         values.append(diff_y_fx[valid_y] ** 2)
         values.append(diff_y_fy[valid_y] ** 2)
 
-    if len(values) == 0:
+    if not values:
         return 0.0
-
-    smoothness_score = float(np.mean(np.concatenate(values)))
-    return smoothness_score
+    return float(np.mean(np.concatenate(values)))
 
 
 def compute_loop_consistency(frames):
     """
-    Measure how similar the final frame is to the first frame for looping quality.
-
-    Args:
-        frames: list of H x W x C numpy arrays
+    MSE between the first and last frame.
 
     Returns:
-        loop_score: scalar, lower means better loop consistency
+        loop_score: scalar, lower means better loop consistency (0 = perfect)
     """
     if len(frames) < 2:
         return 0.0
-
-    first_frame = frames[0].astype(np.float32)
-    last_frame = frames[-1].astype(np.float32)
-
-    mse = np.mean((first_frame - last_frame) ** 2)
-    loop_score = float(mse)
-
-    return loop_score
+    first = frames[0].astype(np.float32)
+    last = frames[-1].astype(np.float32)
+    return float(np.mean((first - last) ** 2))
 
 
 def compute_mask_leakage(frames, mask):
     """
-    Estimate whether motion artifacts spill into background regions outside the mask.
-
-    Args:
-        frames: list of H x W x C numpy arrays
-        mask: H x W binary / grayscale fluid mask
+    Average pixel change in the static background (outside the fluid mask).
 
     Returns:
-        leakage_score: scalar, lower means less leakage outside the valid motion region
+        leakage_score: scalar, lower means less leakage
     """
     if len(frames) < 2:
         return 0.0
 
-    if mask.ndim == 3:
-        mask_2d = mask[:, :, 0]
-    else:
-        mask_2d = mask
-
+    mask_2d = mask[:, :, 0] if mask.ndim == 3 else mask
     background = mask_2d == 0
-
     if np.sum(background) == 0:
         return 0.0
 
-    first_frame = frames[0].astype(np.float32)
-
-    background_changes = []
-
+    first = frames[0].astype(np.float32)
+    diffs = []
     for frame in frames[1:]:
-        frame = frame.astype(np.float32)
+        diff = np.mean(np.abs(frame.astype(np.float32) - first), axis=2)
+        diffs.append(diff[background])
 
-        if frame.ndim == 3:
-            diff = np.mean(np.abs(frame - first_frame), axis=2)
-        else:
-            diff = np.abs(frame - first_frame)
-
-        background_changes.append(diff[background])
-
-    if len(background_changes) == 0:
+    if not diffs:
         return 0.0
+    return float(np.mean(np.concatenate(diffs)))
 
-    leakage_score = float(np.mean(np.concatenate(background_changes)))
-    return leakage_score
+
+# ── Standard image / video quality metrics ────────────────────────────────────
+
+def compute_psnr(img1, img2):
+    """
+    Peak Signal-to-Noise Ratio between two uint8 images (higher is better).
+
+    Args:
+        img1, img2: H x W x C uint8 numpy arrays
+
+    Returns:
+        psnr: float in dB; returns inf when the images are identical
+    """
+    mse = np.mean((img1.astype(np.float32) - img2.astype(np.float32)) ** 2)
+    if mse == 0.0:
+        return float("inf")
+    return float(20.0 * np.log10(255.0 / np.sqrt(mse)))
+
+
+def compute_ms_ssim_loop(frames):
+    """
+    Structural Similarity (SSIM) between the first and last frame.
+
+    Uses skimage.metrics.structural_similarity with multichannel support.
+    Higher is better (1.0 = perfect loop).
+
+    Returns:
+        ssim_score: float in [-1, 1]
+    """
+    try:
+        from skimage.metrics import structural_similarity as ssim
+    except ImportError:
+        return float("nan")
+
+    if len(frames) < 2:
+        return 1.0
+
+    f0 = frames[0].astype(np.float32)
+    fn = frames[-1].astype(np.float32)
+    score = ssim(f0, fn, channel_axis=2, data_range=255.0)
+    return float(score)
+
+
+def compute_temporal_consistency(frames):
+    """
+    Average PSNR between consecutive frame pairs (higher is better).
+
+    Measures how smoothly the video changes over time; a low value hints
+    at flickering or abrupt motion.
+
+    Returns:
+        avg_psnr: float in dB
+    """
+    if len(frames) < 2:
+        return float("inf")
+
+    psnrs = [
+        compute_psnr(frames[i], frames[i + 1])
+        for i in range(len(frames) - 1)
+        if not (np.isinf(compute_psnr(frames[i], frames[i + 1])))
+    ]
+    if not psnrs:
+        return float("inf")
+    return float(np.mean(psnrs))
+
+
+# ── Flow quality metrics (require ground-truth flow) ──────────────────────────
+
+def compute_flow_aepe(pred_flow, gt_flow, mask=None):
+    """
+    Average End-Point Error between predicted and ground-truth flow (lower is better).
+
+    Matches the AEPE metric reported in Table 1 of the paper.
+
+    Args:
+        pred_flow: H x W x 2 predicted flow (float32)
+        gt_flow:   H x W x 2 ground-truth flow (float32)
+        mask:      optional H x W or H x W x 1 mask; if given, only masked
+                   pixels are included in the average
+
+    Returns:
+        aepe: float
+    """
+    diff = pred_flow.astype(np.float32) - gt_flow.astype(np.float32)
+    epe = np.linalg.norm(diff, axis=-1)  # H x W
+
+    if mask is not None:
+        m = mask[:, :, 0] > 0 if mask.ndim == 3 else mask > 0
+        if m.sum() > 0:
+            return float(epe[m].mean())
+        return 0.0
+    return float(epe.mean())
+
+
+def compute_flow_mse(pred_flow, gt_flow, mask=None):
+    """
+    Mean Squared Error between predicted and ground-truth flow (lower is better).
+
+    Matches the MSE metric reported in Table 1 of the paper.
+
+    Args:
+        pred_flow: H x W x 2 predicted flow (float32)
+        gt_flow:   H x W x 2 ground-truth flow (float32)
+        mask:      optional mask (same convention as compute_flow_aepe)
+
+    Returns:
+        mse: float
+    """
+    diff = pred_flow.astype(np.float32) - gt_flow.astype(np.float32)
+    mse_map = (diff ** 2).sum(axis=-1)  # sum dx² + dy², H x W
+
+    if mask is not None:
+        m = mask[:, :, 0] > 0 if mask.ndim == 3 else mask > 0
+        if m.sum() > 0:
+            return float(mse_map[m].mean())
+        return 0.0
+    return float(mse_map.mean())

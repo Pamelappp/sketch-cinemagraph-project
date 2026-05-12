@@ -20,7 +20,8 @@ def build_scene_prompt(base_prompt: str, style_prompt: str | None = None) -> str
     elif components["style"]:
         prompt_parts.append(components["style"])
 
-    prompt_parts.append("detailed stylized landscape")
+    if not style_prompt:
+        prompt_parts.append("detailed stylized landscape")
 
     return _join_prompt_parts(prompt_parts)
 

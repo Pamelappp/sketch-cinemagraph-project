@@ -1,0 +1,28 @@
+# model checkpoints / weights
+*.ckpt
+*.pth
+*.pt
+*.safetensors
+*.onnx
+
+**/checkpoints/
+**/checkpoint/
+**/weights/
+**/pretrained/
+**/models/checkpoints/
+
+# generated outputs, optional but recommended
+**/data/outputs/
+**/outputs/
+
+# checkpoints / large model files
+sketch_cinemagraph_skeleton/checkpoints.tar
+**/checkpoints.tar
+*.ckpt
+*.pth
+*.pt
+*.safetensors
+*.onnx
+**/checkpoints/
+**/weights/
+**/pretrained/
