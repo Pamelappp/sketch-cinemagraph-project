@@ -165,10 +165,15 @@ class _GroundedSAMBackend:
         )
 
         self._torch = torch
-        if torch.cuda.is_available():
+        # HuggingFace's Grounding-DINO post-processing uses float64 internally,
+        # which MPS does not support. CUDA is fine; on Apple Silicon we fall
+        # back to CPU (one-shot inference, ~10–20 s per call). Override via
+        # GROUNDED_SAM_DEVICE=mps if your transformers version is patched.
+        forced = os.environ.get("GROUNDED_SAM_DEVICE")
+        if forced:
+            self.device = forced
+        elif torch.cuda.is_available():
             self.device = "cuda"
-        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-            self.device = "mps"
         else:
             self.device = "cpu"
 

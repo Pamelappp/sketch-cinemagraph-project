@@ -67,6 +67,7 @@ class TrainConfig:
     seed: int
     augment: bool
     flow_scale: float
+    tv_weight: float
 
 
 def parse_args() -> TrainConfig:
@@ -89,6 +90,8 @@ def parse_args() -> TrainConfig:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--no-augment", action="store_true", help="Disable horizontal-flip augmentation for real data.")
     parser.add_argument("--flow-scale", type=float, default=1.0, help="Multiplier applied to ground-truth flows.")
+    parser.add_argument("--tv-weight", type=float, default=0.05,
+                        help="Weight on the total-variation smoothness regulariser. Set 0 to disable.")
     args = parser.parse_args()
 
     return TrainConfig(
@@ -110,6 +113,7 @@ def parse_args() -> TrainConfig:
         seed=args.seed,
         augment=not args.no_augment,
         flow_scale=args.flow_scale,
+        tv_weight=args.tv_weight,
     )
 
 
@@ -256,8 +260,12 @@ def train(cfg: TrainConfig) -> None:
 
             prediction = model(inputs)
             data_loss = masked_endpoint_loss(prediction, target, mask)
-            tv_loss = total_variation(prediction, mask)
-            loss = data_loss + 0.05 * tv_loss
+            if cfg.tv_weight > 0:
+                tv_loss = total_variation(prediction, mask)
+                loss = data_loss + cfg.tv_weight * tv_loss
+            else:
+                tv_loss = torch.tensor(0.0, device=device)
+                loss = data_loss
 
             optimizer.zero_grad(set_to_none=True)
             loss.backward()

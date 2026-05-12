@@ -9,6 +9,17 @@ scene:
   seed: 42
   save_reference: true
 
+motion:
+  # Choose 'heuristic' (proposal §3.5 main version) or 'learned' (advanced version).
+  # The learned backend requires a trained checkpoint produced by
+  # scripts/train_learned_predictor.py.
+  backend: heuristic
+  learned:
+    checkpoint_path: checkpoints/best.pt
+    device: mps          # 'cuda', 'mps' or 'cpu'
+    input_size: 256
+    base_channels: 64
+
 synthesis:
   num_frames: 60
 

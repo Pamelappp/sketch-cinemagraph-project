@@ -38,9 +38,37 @@ class CinemagraphPipeline:
         self.cfg = cfg
         self.scene_generator = SceneGenerator(cfg.get("scene", {}))
 
-    def run(self, structural_sketch: np.ndarray, motion_sketch: np.ndarray, text_prompt: str) -> Dict[str, Any]:
+        motion_cfg = cfg.get("motion", {}) or {}
+        self.motion_backend = str(motion_cfg.get("backend", "heuristic")).lower()
+        self._learned_predictor = None
+        if self.motion_backend == "learned":
+            # Lazy-import so the heuristic path stays import-light.
+            from src.motion_field.learned_predictor import LearnedMotionPredictor
+
+            self._learned_predictor = LearnedMotionPredictor(motion_cfg.get("learned", {}))
+
+    def run(
+        self,
+        structural_sketch: np.ndarray,
+        motion_sketch: np.ndarray,
+        text_prompt: str,
+        pre_generated_image: np.ndarray | None = None,
+    ) -> Dict[str, Any]:
         """
         Run the full project pipeline.
+
+        Args:
+            structural_sketch: black-on-white scene-layout sketch. May be a
+                blank canvas in image-based mode; the fluid mask then
+                falls back to dilated motion strokes + Grounded-SAM.
+            motion_sketch: white-to-black gradient strokes encoding flow.
+            text_prompt: scene/style description for SD; also used as the
+                Grounded-SAM query.
+            pre_generated_image: optional H x W x 3 RGB photo / image.
+                When provided the scene-generation stage is skipped and
+                this image is used as both the stylized output and the
+                realistic reference. This is the paper's §5.6
+                "image-based cinemagraph synthesis" mode.
 
         Returns a dictionary containing:
         - stylized_image
@@ -54,16 +82,37 @@ class CinemagraphPipeline:
         - video_path
         - gif_path
         """
-        scene_out = self._scene_generation(structural_sketch, text_prompt)
+        # Photo mode: user uploaded a real photo — skip scene generation.
+        photo_mode = pre_generated_image is not None
+        if photo_mode:
+            scene_out = {
+                "stylized_image": pre_generated_image,
+                "realistic_reference": pre_generated_image,
+            }
+        else:
+            scene_out = self._scene_generation(structural_sketch, text_prompt)
+
+        # Colour-based mask expansion is only reliable on real photographs
+        # where the water/sky has a distinctive colour cluster. On diffusion-
+        # generated images the stylisation can unify colours across the whole
+        # canvas, causing the mask to cover the entire image. So we only pass
+        # the reference image when in photo mode; sketch mode relies on the
+        # structural sketch's closed regions instead.
+        mask_ref = scene_out["stylized_image"] if photo_mode else None
         mask_out = self._fluid_mask_extraction(
             structural_sketch=structural_sketch,
             motion_sketch=motion_sketch,
             stylized_image=scene_out["stylized_image"],
             text_prompt=text_prompt,
+            reference_image=mask_ref,
         )
+        reference_image = scene_out.get("realistic_reference")
+        if reference_image is None:
+            reference_image = scene_out["stylized_image"]
         motion_out = self._motion_field_estimation(
             motion_sketch=motion_sketch,
             final_fluid_mask=mask_out["final_fluid_mask"],
+            reference_image=reference_image,
         )
         synth_out = self._cinemagraph_synthesis(
             stylized_image=scene_out["stylized_image"],
@@ -87,10 +136,18 @@ class CinemagraphPipeline:
         - support style prompts and negative prompts
         - cache outputs to avoid repeated generation during debugging
         """
-        return self.scene_generator.generate(
+        scene_out = self.scene_generator.generate(
             structural_sketch=structural_sketch,
             text_prompt=text_prompt,
         )
+        # ``SceneGenerator.generate`` returns a dataclass; downstream stages
+        # treat the scene output like a dictionary, so unwrap it here.
+        if hasattr(scene_out, "stylized_image"):
+            return {
+                "stylized_image": scene_out.stylized_image,
+                "realistic_reference": getattr(scene_out, "realistic_reference", None),
+            }
+        return scene_out
 
     def _fluid_mask_extraction(
         self,
@@ -98,19 +155,23 @@ class CinemagraphPipeline:
         motion_sketch: np.ndarray,
         stylized_image: np.ndarray,
         text_prompt: str,
+        reference_image: np.ndarray | None = None,
     ) -> Dict[str, Any]:
         """
         Create the final fluid mask using:
-        1. semantic mask from sketch input
+        1. semantic mask from sketch input (optionally expanded via image colour)
         2. refined image-based mask
         3. mask postprocessing / fusion
 
-        This matches the simplified proposal logic:
-        user intent from sketch + image boundary refinement.
+        When *reference_image* is available the semantic mask is automatically
+        grown from the stroke seed positions to the full connected region of
+        similar colour in the image — so the entire lake / sky animates, not
+        only the pixels directly under the user's brush strokes.
         """
         semantic_mask = build_semantic_mask(
             structural_sketch=structural_sketch,
             motion_sketch=motion_sketch,
+            reference_image=reference_image,
         )
 
         refined_mask = refine_fluid_mask(
@@ -133,13 +194,20 @@ class CinemagraphPipeline:
         self,
         motion_sketch: np.ndarray,
         final_fluid_mask: np.ndarray,
+        reference_image: np.ndarray,
     ) -> Dict[str, Any]:
         """
         Convert motion sketch into a dense motion field.
 
-        Current simplified implementation:
-        motion sketch -> strokes -> sparse vector constraints
-        -> dense propagation inside fluid mask -> smoothing
+        Two backends are supported (selected via cfg["motion"]["backend"]):
+
+        - ``heuristic`` (default): proposal §3.5 main version. Parses strokes,
+          builds sparse vector constraints, propagates them by k-nearest
+          inverse-distance weighting, then smooths.
+        - ``learned``: proposal §3.5 advanced version. Uses
+          ``LearnedMotionPredictor`` (a U-Net trained on
+          (image, sketch, mask) -> flow) to predict the dense field directly,
+          then applies the same smoothing post-process.
         """
         strokes = parse_motion_sketch(motion_sketch)
         sparse_constraints = build_sparse_constraints(
@@ -147,10 +215,17 @@ class CinemagraphPipeline:
             mask=final_fluid_mask,
         )
 
-        dense_motion_field = propagate_sparse_to_dense(
-            constraints=sparse_constraints,
-            mask=final_fluid_mask,
-        )
+        if self.motion_backend == "learned" and self._learned_predictor is not None:
+            dense_motion_field = self._learned_predictor.predict(
+                reference_image=reference_image,
+                fluid_mask=final_fluid_mask,
+                motion_sketch=motion_sketch,
+            )
+        else:
+            dense_motion_field = propagate_sparse_to_dense(
+                constraints=sparse_constraints,
+                mask=final_fluid_mask,
+            )
 
         dense_motion_field = smooth_motion_field(
             flow=dense_motion_field,
@@ -180,7 +255,9 @@ class CinemagraphPipeline:
         synth_cfg = self.cfg.get("synthesis", {})
         num_frames = int(synth_cfg.get("num_frames", 48))
         fps = int(synth_cfg.get("fps", 12))
-        loop_mode = synth_cfg.get("loop_mode", "pingpong")
+        # Default 'linear': the warp module already produces a closed Eulerian
+        # loop where motion flows in a single direction; no need for ping-pong.
+        loop_mode = synth_cfg.get("loop_mode", "linear")
 
         frames = warp_frames(
             image=stylized_image,

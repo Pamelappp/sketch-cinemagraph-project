@@ -32,12 +32,13 @@ class SceneGenerator:
         """
         Produce the main stylized image and an optional realistic reference image.
 
-        Detailed TODO:
-        1. Preprocess the incoming structural sketch.
-        2. Call generate_stylized().
-        3. Call generate_reference().
-        4. Wrap both outputs into SceneOutput.
+        Routes to the diffusion backend (Stable Diffusion + ControlNet) when
+        ``cfg["backend"] == "diffusion"`` is configured; otherwise falls back
+        to the lightweight placeholder for offline / smoke-test scenarios.
         """
+        if self.backend == "diffusion":
+            return self._diffusion_generate(structural_sketch, text_prompt)
+
         stylized_image = self.generate_stylized(structural_sketch, text_prompt)
 
         realistic_reference = None
@@ -48,6 +49,23 @@ class SceneGenerator:
             stylized_image=stylized_image,
             realistic_reference=realistic_reference,
         )
+
+    def _diffusion_generate(self, structural_sketch, text_prompt: str) -> SceneOutput:
+        """Lazy-instantiate and call the SD + ControlNet diffusion backend.
+
+        If the ControlNet model ID changed since the last call (e.g. user
+        switched from lineart to scribble in the GUI), rebuild the backend.
+        """
+        from src.scene_generation.diffusion_backend import DiffusionSceneGenerator
+
+        desired_cn = self.cfg.get("controlnet_id")
+        if (
+            not hasattr(self, "_diffusion_backend")
+            or self._diffusion_backend is None
+            or (desired_cn and self._diffusion_backend.controlnet_id != desired_cn)
+        ):
+            self._diffusion_backend = DiffusionSceneGenerator(self.cfg)
+        return self._diffusion_backend.generate(structural_sketch, text_prompt)
 
     def generate_stylized(self, structural_sketch, text_prompt: str):
         """

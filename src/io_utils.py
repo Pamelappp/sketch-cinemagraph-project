@@ -113,29 +113,47 @@ def save_image(image, output_path: str | Path) -> None:
 
 
 def save_mask(mask, output_path: str | Path) -> None:
-    """
-    Save a mask image to disk for inspection.
+    """Save a binary mask as a 0/255 PNG."""
+    path = Path(output_path)
+    ensure_dir(path.parent)
 
-    Detailed TODO:
-    1. Ensure the output directory exists.
-    2. Convert the mask into a visible binary image (0 or 255).
-    3. Save as PNG so boundaries remain clear.
-    4. Optionally overlay the mask on the source image in a debug mode.
-    """
-    raise NotImplementedError
+    array = np.asarray(mask)
+    if array.ndim == 3:
+        array = array[..., 0]
+    binary = (array > 0).astype(np.uint8) * 255
+    Image.fromarray(binary).save(path)
 
 
 def save_motion_field(flow, output_path: str | Path) -> None:
     """
-    Save a dense motion field in a suitable visualization or binary format.
-
-    Detailed TODO:
-    1. Save the raw flow tensor for later reuse (.npy or similar).
-    2. Generate a color visualization for quick inspection.
-    3. Ensure both save paths are organized under an intermediate folder.
-    4. Keep naming consistent with the corresponding input sample.
+    Save a dense motion field both as a raw .npy tensor and a colour-coded
+    PNG visualisation. The PNG is written next to the .npy under the same
+    stem, so e.g. ``flow.npy`` is paired with ``flow.png``.
     """
-    raise NotImplementedError
+    path = Path(output_path)
+    ensure_dir(path.parent)
+
+    array = np.asarray(flow, dtype=np.float32)
+    if array.ndim != 3 or array.shape[2] != 2:
+        raise ValueError(f"Expected H x W x 2 flow, got shape {array.shape}")
+
+    npy_path = path.with_suffix(".npy")
+    png_path = path.with_suffix(".png")
+    np.save(npy_path, array)
+
+    # Lazy import to avoid pulling cv2 in for callers that only need .npy.
+    import cv2
+
+    fx = array[..., 0]
+    fy = array[..., 1]
+    magnitude, angle = cv2.cartToPolar(fx, fy)
+    hsv = np.zeros((array.shape[0], array.shape[1], 3), dtype=np.uint8)
+    hsv[..., 0] = (angle * 180.0 / np.pi / 2.0).astype(np.uint8)
+    hsv[..., 1] = 255
+    if magnitude.max() > 0:
+        hsv[..., 2] = cv2.normalize(magnitude, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    rgb = cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB)
+    Image.fromarray(rgb).save(png_path)
 
 
 def ensure_dir(path: str | Path) -> Path:

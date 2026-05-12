@@ -41,9 +41,10 @@ from torch.utils.data import Dataset
 class SyntheticConfig:
     image_size: int = 256
     num_samples: int = 2000
-    max_strokes: int = 4
-    min_strokes: int = 1
+    max_strokes: int = 6
+    min_strokes: int = 3
     max_flow_magnitude: float = 6.0
+    stroke_thickness: int = 3
     seed: int = 42
 
 
@@ -68,6 +69,7 @@ class SyntheticMotionDataset(Dataset):
             mask,
             num_strokes=int(rng.integers(self.cfg.min_strokes, self.cfg.max_strokes + 1)),
             rng=rng,
+            thickness=self.cfg.stroke_thickness,
         )
 
         sample = _to_training_tensors(image, sketch, mask, flow)
@@ -168,6 +170,7 @@ def _flow_to_motion_sketch(
     mask: np.ndarray,
     num_strokes: int,
     rng: np.random.Generator,
+    thickness: int = 3,
 ) -> np.ndarray:
     """Trace a few streamlines through the flow and render them with a white-to-black gradient."""
     h, w = mask.shape
@@ -209,7 +212,7 @@ def _flow_to_motion_sketch(
             grey = int(round(255 * (1.0 - ratio)))
             p0 = (int(round(path_arr[i, 1])), int(round(path_arr[i, 0])))
             p1 = (int(round(path_arr[i + 1, 1])), int(round(path_arr[i + 1, 0])))
-            cv2.line(sketch, p0, p1, (grey, grey, grey), 1, lineType=cv2.LINE_AA)
+            cv2.line(sketch, p0, p1, (grey, grey, grey), thickness, lineType=cv2.LINE_AA)
 
     return sketch
 

@@ -17,3 +17,11 @@ Thumbs.db
 
 # Pipeline outputs
 data/outputs/
+data/raw/
+
+# Model checkpoints (too large for git)
+checkpoints/
+checkpoints_*/
+
+# Chat logs
+chatlog/
