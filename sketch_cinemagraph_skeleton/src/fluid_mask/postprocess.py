@@ -35,11 +35,17 @@ def combine_masks(semantic_mask, refined_mask):
     intersection_area = int(intersection.sum())
 
     if semantic_area == 0:
+        # No user hint at all — fall back to whatever SAM found.
         fused = refined_bool
-    elif intersection_area < _MIN_INTERSECTION_FRACTION * semantic_area:
-        fused = semantic_bool
-    else:
+    elif intersection_area >= _MIN_INTERSECTION_FRACTION * semantic_area:
+        # Refine boundaries within the user-indicated region.
+        # The semantic mask is the hard upper bound: refined_mask can only
+        # shrink it, never expand it to areas like sky or background.
         fused = intersection
+    else:
+        # Grounding-SAM missed the fluid region entirely — trust the
+        # semantic mask derived from the user's motion sketch.
+        fused = semantic_bool
 
     final = (fused.astype(np.uint8)) * 255
     final = smooth_mask_edges(final)

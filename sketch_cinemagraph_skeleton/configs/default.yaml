@@ -2,24 +2,29 @@ input:
   structural_sketch_path: data/inputs/structural_sketch/village.png
   motion_sketch_path: data/inputs/motion_sketch/village.png
   prompt_path: data/inputs/prompts/village.txt
+  fluid_prompt_path: data/inputs/prompts/village_fluid.txt
 
 scene:
   backend: diffusion
   image_size: null
-  seed: 42
+  seed: null
   save_reference: true
+  style_prompt: "realistic landscape photograph, natural lighting"
 
   model_id: runwayml/stable-diffusion-v1-5
-  controlnet_id: lllyasviel/control_v11p_sd15_scribble
+  controlnet_id: lllyasviel/control_v11p_sd15_lineart
   num_inference_steps: 25
-  guidance_scale: 6.5
-  controlnet_conditioning_scale: 0.8
+  guidance_scale: 7.5
+  controlnet_conditioning_scale: 0.9
   enable_cpu_offload: true
   negative_prompt: "low quality, blurry, distorted, repeated texture, mosaic pattern, extra objects, messy composition"
 
+motion_field:
+  t2c_checkpoint: checkpoints/checkpoints/motion-direction-pretrained/latest_net_G.pth
+
 synthesis:
-  num_frames: 60
-  fps: 20
+  num_frames: 120   # paper uses 120 frames (4s @ 30fps)
+  fps: 30
 
 output:
   stylized_image_path: data/outputs/scene/stylized_image_village.png

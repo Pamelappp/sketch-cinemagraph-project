@@ -26,17 +26,15 @@ FLUID_KEYWORDS: Tuple[str, ...] = (
     "wave",
     "pond",
     "stream",
-    "sky",
-    "cloud",
-    "mist",
-    "fog",
     "smoke",
     "fire",
     "lava",
     "steam",
 )
 
-_DEFAULT_QUERY = "water. sky. cloud. smoke."
+# Sky/cloud/mist/fog are excluded: Grounding-DINO tends to segment the entire
+# sky, which then overrides the user's motion-sketch intent in combine_masks.
+_DEFAULT_QUERY = "water. river. smoke."
 
 # Default Grounded-SAM checkpoints. Override via environment variables when
 # stronger models are available locally.
@@ -50,7 +48,7 @@ _BACKEND_LOCK = threading.Lock()
 _BACKEND: Optional["_GroundedSAMBackend"] = None
 
 
-def refine_fluid_mask(image, text_prompt: str):
+def refine_fluid_mask(image, text_prompt: str, fluid_prompt: str = ""):
     """
     Refine fluid-region boundaries from the generated landscape image.
 
@@ -59,23 +57,30 @@ def refine_fluid_mask(image, text_prompt: str):
     text prompt; the resulting bounding boxes condition the Segment
     Anything Model, which produces precise instance masks. The masks are
     unioned and morphologically cleaned to obtain the refined fluid mask.
+
+    Args:
+        image: H×W×3 uint8 RGB landscape image.
+        text_prompt: free-form scene description (used for keyword extraction
+            when *fluid_prompt* is not provided).
+        fluid_prompt: optional Grounding-DINO query in "water. sea." format.
+            When non-empty this is used directly, bypassing keyword extraction
+            from *text_prompt*.
     """
-    raw_mask = run_segmentation_backend(image, text_prompt)
+    query = fluid_prompt.strip() if fluid_prompt.strip() else _build_dino_query(text_prompt)
+    raw_mask = run_segmentation_backend(image, query)
     return clean_refined_mask(raw_mask)
 
 
-def run_segmentation_backend(image, text_prompt: str):
+def run_segmentation_backend(image, query: str):
     """
     Execute the Grounded-SAM backend (Grounding DINO + SAM) on the input
-    landscape image, conditioned on the textual fluid query derived from
-    the user prompt. Returns a binary uint8 mask of the union of all
-    detected fluid regions.
+    landscape image, conditioned on the pre-built Grounding DINO query string.
+    Returns a binary uint8 mask of the union of all detected fluid regions.
     """
     rgb = _to_uint8_rgb(image)
     height, width = rgb.shape[:2]
     pil_image = Image.fromarray(rgb)
 
-    query = _build_dino_query(text_prompt)
     backend = _get_backend()
 
     boxes, scores = backend.detect_boxes(

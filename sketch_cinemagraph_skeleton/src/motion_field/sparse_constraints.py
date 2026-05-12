@@ -68,6 +68,13 @@ def stroke_to_vectors(stroke):
     vectors[:, 0] = deltas[:, 1]
     vectors[:, 1] = deltas[:, 0]
 
+    # Normalise to unit direction so RBF interpolates pure direction,
+    # not magnitude-contaminated blends (long strokes would otherwise
+    # dominate short ones and pull the field in the wrong direction).
+    magnitudes = np.linalg.norm(vectors, axis=1, keepdims=True)
+    nonzero = magnitudes[:, 0] > 1e-6
+    vectors[nonzero] = vectors[nonzero] / magnitudes[nonzero]
+
     points = np.rint(stroke).astype(np.int32)
     return points, vectors.astype(np.float32)
 

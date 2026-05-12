@@ -19,6 +19,7 @@ class UserInput:
     structural_sketch: ImageArray
     motion_sketch: ImageArray
     text_prompt: str
+    fluid_prompt: str = ""  # optional Grounding-SAM query (e.g. "sea. water.")
 
 
 @dataclass

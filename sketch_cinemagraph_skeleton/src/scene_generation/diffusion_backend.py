@@ -14,7 +14,8 @@ class DiffusionSceneBackend:
             "negative_prompt",
             "low quality, blurry, distorted, repeated texture, mosaic pattern, extra objects, messy composition",
         )
-        self.seed = int(cfg.get("seed", 42))
+        raw_seed = cfg.get("seed", 42)
+        self.seed = None if raw_seed is None else int(raw_seed)
         self.image_size = cfg.get("image_size", None)   # allow null
         self.enable_cpu_offload = bool(cfg.get("enable_cpu_offload", True))
 
@@ -25,7 +26,9 @@ class DiffusionSceneBackend:
         pipe = self._get_pipeline()
         torch = self._torch
 
-        generator = torch.Generator(device="cpu").manual_seed(self.seed)
+        generator = None
+        if self.seed is not None:
+            generator = torch.Generator(device="cpu").manual_seed(self.seed)
 
         width, height = control_image.size
 

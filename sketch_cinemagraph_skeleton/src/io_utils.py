@@ -87,10 +87,20 @@ def load_user_input(input_cfg: dict[str, Any]) -> UserInput:
     structural_sketch = _load_image(structural_path)
     motion_sketch = _load_image(motion_path)
 
+    # Optional fluid prompt — used by Grounding-SAM instead of deriving
+    # keywords from the scene prompt (accepts "sea. water." style queries).
+    fluid_text = str(input_cfg.get("fluid_prompt", "")).strip()
+    fluid_prompt_path = input_cfg.get("fluid_prompt_path")
+    if not fluid_text and fluid_prompt_path:
+        fluid_file = Path(fluid_prompt_path)
+        if fluid_file.exists():
+            fluid_text = fluid_file.read_text(encoding="utf-8").strip()
+
     return UserInput(
         structural_sketch=structural_sketch,
         motion_sketch=motion_sketch,
         text_prompt=str(prompt_text).strip(),
+        fluid_prompt=fluid_text,
     )
 
 
