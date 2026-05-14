@@ -7,8 +7,9 @@ import cv2
 
 from src.io_utils import load_config, load_user_input, save_image, ensure_dir
 from src.pipeline import CinemagraphPipeline
+from src.evaluation.metrics import sanitize_for_json
 from src.evaluation.visualize import (
-    visualize_mask,
+    save_debug_mask,
     visualize_motion_field,
     visualize_pipeline_summary,
 )
@@ -43,18 +44,20 @@ def main() -> None:
     # 2. save debug visualizations
     debug_dir = ensure_dir(output_cfg.get("debug_dir", "data/outputs/debug"))
 
-    mask_vis = visualize_mask(mask_out["final_fluid_mask"])
+    save_debug_mask(debug_dir / "final_mask.png", mask_out["final_fluid_mask"])
     flow_vis = visualize_motion_field(motion_out["dense_motion_field"])
     summary_vis = visualize_pipeline_summary(scene_out, mask_out, motion_out)
 
-    cv2.imwrite(str(debug_dir / "final_mask.png"), mask_vis)
     cv2.imwrite(str(debug_dir / "dense_motion_field.png"), flow_vis)
     cv2.imwrite(str(debug_dir / "pipeline_summary.png"), summary_vis)
 
     # 3. save metrics
     metrics_path = debug_dir / "metrics.json"
     with open(metrics_path, "w", encoding="utf-8") as f:
-        json.dump(metrics, f, indent=4)
+        json.dump(sanitize_for_json(metrics), f, indent=4)
+
+    def _fmt(val, fmt=".4f"):
+        return f"{val:{fmt}}" if val is not None else "N/A"
 
     # 4. print summary
     print("=== Sketch Cinemagraph Pipeline Finished ===")
@@ -68,9 +71,10 @@ def main() -> None:
     print(f"Motion smoothness:        {metrics['motion_smoothness']:.6f}  (lower is better)")
     print(f"Loop consistency (MSE):   {metrics['loop_consistency']:.6f}  (lower is better)")
     print(f"Mask leakage:             {metrics['mask_leakage']:.6f}  (lower is better)")
-    print(f"Loop PSNR:                {metrics['psnr_loop']:.4f} dB  (higher is better)")
-    print(f"Loop SSIM:                {metrics['ssim_loop']:.4f}     (higher is better)")
-    print(f"Temporal consistency:     {metrics['temporal_consistency_psnr']:.4f} dB  (higher is better)")
+    print(f"Loop PSNR:                {_fmt(metrics['psnr_loop'])} dB  (higher is better)")
+    print(f"Loop SSIM:                {_fmt(metrics['ssim_loop'])}     (higher is better)")
+    print(f"Temporal consistency:     {_fmt(metrics['temporal_consistency_psnr'])} dB  (higher is better)")
+    print(f"Mask valid:               {metrics.get('mask_valid', 'N/A')}")
 
 
 if __name__ == "__main__":

@@ -82,9 +82,9 @@ def _rbf_propagate(points, vectors, mask_pixels, flow):
 
         # Interpolate dx and dy channels independently
         rbf_dx = RBFInterpolator(pts, vectors[:, 0].astype(np.float64),
-                                 kernel="thin_plate_spline", degree=1, smoothing=1.0)
+                                 kernel="thin_plate_spline", degree=1, smoothing=0.0)
         rbf_dy = RBFInterpolator(pts, vectors[:, 1].astype(np.float64),
-                                 kernel="thin_plate_spline", degree=1, smoothing=1.0)
+                                 kernel="thin_plate_spline", degree=1, smoothing=0.0)
 
         dx = rbf_dx(qpts).astype(np.float32)
         dy = rbf_dy(qpts).astype(np.float32)

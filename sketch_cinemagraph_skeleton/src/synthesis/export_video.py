@@ -28,6 +28,26 @@ def export_cinemagraph(frames, output_path: str, fps: int = 20):
         raise ValueError(f"Unsupported output format: {ext}. Use .gif or .mp4")
 
 
+def _drop_duplicate_tail(frames, threshold: float = 1.0):
+    """
+    Remove the last frame when it is near-identical to the first frame.
+
+    enforce_loop() copies frames[0] into frames[-1] to close the loop boundary.
+    Saving that duplicate tail causes a visible pause at the loop point because the
+    player renders the first frame twice in a row. Dropping it produces a seamless
+    loop: the player jumps from the last saved frame directly back to the first.
+    """
+    if len(frames) < 2:
+        return frames
+    first = frames[0].astype(np.float32)
+    last = frames[-1].astype(np.float32)
+    mad = float(np.mean(np.abs(last - first)))
+    if mad < threshold:
+        print(f"[Export] Dropping duplicate tail frame (first↔last MAD={mad:.4f} < {threshold})")
+        return frames[:-1]
+    return frames
+
+
 def export_gif(frames, output_path: str, fps: int = 20):
     """
     Export the cinemagraph as a GIF file.
@@ -43,6 +63,7 @@ def export_gif(frames, output_path: str, fps: int = 20):
     if len(frames) == 0:
         raise ValueError("frames is empty")
 
+    frames = _drop_duplicate_tail(frames)
     os.makedirs(os.path.dirname(output_path), exist_ok=True) if os.path.dirname(output_path) else None
 
     processed_frames = []
@@ -71,6 +92,7 @@ def export_mp4(frames, output_path: str, fps: int = 20):
     if len(frames) == 0:
         raise ValueError("frames is empty")
 
+    frames = _drop_duplicate_tail(frames)
     os.makedirs(os.path.dirname(output_path), exist_ok=True) if os.path.dirname(output_path) else None
 
     first_frame = np.clip(frames[0], 0, 255).astype(np.uint8)
