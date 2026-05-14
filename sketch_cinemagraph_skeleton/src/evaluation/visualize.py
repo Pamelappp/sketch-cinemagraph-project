@@ -32,6 +32,36 @@ def visualize_mask(mask):
     return vis_mask
 
 
+def save_debug_mask(path, mask, invert: bool = False):
+    """
+    Save a binary mask directly as a single-channel PNG.
+
+    Mask convention: 255 = fluid/foreground, 0 = static/background.
+    Set invert=True to flip before saving (shows what is NOT selected).
+    """
+    import pathlib
+    array = np.asarray(mask)
+    if array.ndim == 3:
+        array = array[:, :, 0]
+    binary = (array > 0).astype(np.uint8) * 255
+    if invert:
+        binary = 255 - binary
+    cv2.imwrite(str(pathlib.Path(path)), binary)
+
+
+def visualize_candidate_regions(candidate_regions):
+    """
+    Produce a colour-coded H×W×3 uint8 image from a connected-component label map.
+
+    Label 0 (ink / background) is black; each positive label gets a distinct colour.
+    """
+    vis = np.zeros((*candidate_regions.shape[:2], 3), dtype=np.uint8)
+    for lid in range(1, int(candidate_regions.max()) + 1):
+        colour = [(lid * 67) % 256, (lid * 131) % 256, (lid * 197) % 256]
+        vis[candidate_regions == lid] = colour
+    return vis
+
+
 def visualize_motion_field(flow):
     """
     Convert a dense motion field into a color visualization.

@@ -1,8 +1,9 @@
 {
-    "motion_smoothness": 0.001280113123357296,
+    "motion_smoothness": 0.0001347224897472188,
     "loop_consistency": 0.0,
-    "mask_leakage": 0.054616887122392654,
-    "psnr_loop": Infinity,
+    "mask_leakage": 0.10710720717906952,
+    "psnr_loop": null,
     "ssim_loop": 1.0,
-    "temporal_consistency_psnr": 20.73161374420679
+    "temporal_consistency_psnr": 53.34217834472656,
+    "mask_valid": true
 }

@@ -12,10 +12,9 @@ import numpy as np
 from PIL import Image
 
 
-# Vocabulary of fluid categories that drive the open-vocabulary detector.
-# The list mirrors the classes the baseline paper targets (waterfalls,
-# rivers, seas, skies, smoke) and is used to extract a clean grounding
-# query from the user's free-form prompt.
+# Baseline-inspired fluid categories (waterfall, river, sea, sky, smoke).
+# Extended with additional fluid-like categories (fire, lava, steam) for
+# robustness beyond the baseline paper's scope.
 FLUID_KEYWORDS: Tuple[str, ...] = (
     "water",
     "river",
@@ -26,29 +25,34 @@ FLUID_KEYWORDS: Tuple[str, ...] = (
     "wave",
     "pond",
     "stream",
+    "sky",
+    "cloud",
+    "mist",
+    "fog",
     "smoke",
     "fire",
     "lava",
     "steam",
 )
 
-# Sky/cloud/mist/fog are excluded: Grounding-DINO tends to segment the entire
-# sky, which then overrides the user's motion-sketch intent in combine_masks.
-_DEFAULT_QUERY = "water. river. smoke."
+_DEFAULT_QUERY = "water. sky. cloud. smoke."
 
 # Default Grounded-SAM checkpoints. Override via environment variables when
 # stronger models are available locally.
 _DINO_MODEL_ID = os.environ.get("GROUNDING_DINO_MODEL", "IDEA-Research/grounding-dino-tiny")
 _SAM_MODEL_ID = os.environ.get("SAM_MODEL", "facebook/sam-vit-base")
 
-_BOX_THRESHOLD = 0.30
-_TEXT_THRESHOLD = 0.25
+# Lower thresholds improve recall on generated/stylized images where confidence
+# scores are typically lower than on natural photographs.
+# Override at runtime: DINO_BOX_THRESHOLD=0.25 python main.py
+_BOX_THRESHOLD = float(os.environ.get("DINO_BOX_THRESHOLD", "0.18"))
+_TEXT_THRESHOLD = float(os.environ.get("DINO_TEXT_THRESHOLD", "0.15"))
 
 _BACKEND_LOCK = threading.Lock()
 _BACKEND: Optional["_GroundedSAMBackend"] = None
 
 
-def refine_fluid_mask(image, text_prompt: str, fluid_prompt: str = ""):
+def refine_fluid_mask(image, text_prompt: str, debug_dir=None):
     """
     Refine fluid-region boundaries from the generated landscape image.
 
@@ -57,30 +61,30 @@ def refine_fluid_mask(image, text_prompt: str, fluid_prompt: str = ""):
     text prompt; the resulting bounding boxes condition the Segment
     Anything Model, which produces precise instance masks. The masks are
     unioned and morphologically cleaned to obtain the refined fluid mask.
-
-    Args:
-        image: H×W×3 uint8 RGB landscape image.
-        text_prompt: free-form scene description (used for keyword extraction
-            when *fluid_prompt* is not provided).
-        fluid_prompt: optional Grounding-DINO query in "water. sea." format.
-            When non-empty this is used directly, bypassing keyword extraction
-            from *text_prompt*.
     """
-    query = fluid_prompt.strip() if fluid_prompt.strip() else _build_dino_query(text_prompt)
-    raw_mask = run_segmentation_backend(image, query)
-    return clean_refined_mask(raw_mask)
+    import pathlib as _pathlib
+    raw_mask = run_segmentation_backend(image, text_prompt, debug_dir=debug_dir)
+    cleaned = clean_refined_mask(raw_mask)
+    if debug_dir is not None:
+        d = _pathlib.Path(debug_dir)
+        d.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(d / "debug_refined_cleaned.png"), cleaned)
+    return cleaned
 
 
-def run_segmentation_backend(image, query: str):
+def run_segmentation_backend(image, text_prompt: str, debug_dir=None):
     """
     Execute the Grounded-SAM backend (Grounding DINO + SAM) on the input
-    landscape image, conditioned on the pre-built Grounding DINO query string.
-    Returns a binary uint8 mask of the union of all detected fluid regions.
+    landscape image, conditioned on the textual fluid query derived from
+    the user prompt. Returns a binary uint8 mask of the union of all
+    detected fluid regions.
     """
+    import pathlib as _pathlib
     rgb = _to_uint8_rgb(image)
     height, width = rgb.shape[:2]
     pil_image = Image.fromarray(rgb)
 
+    query = _build_dino_query(text_prompt)
     backend = _get_backend()
 
     boxes, scores = backend.detect_boxes(
@@ -99,6 +103,10 @@ def run_segmentation_backend(image, query: str):
     fused = np.any(masks, axis=0).astype(np.uint8) * 255
     if fused.shape != (height, width):
         fused = cv2.resize(fused, (width, height), interpolation=cv2.INTER_NEAREST)
+    if debug_dir is not None:
+        d = _pathlib.Path(debug_dir)
+        d.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(d / "debug_refined_raw.png"), fused)
     return fused
 
 
@@ -121,7 +129,7 @@ def clean_refined_mask(mask):
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
     cleaned = np.zeros_like(binary)
     for label_id in range(1, num_labels):
-        if stats[label_id, cv2.CC_STAT_AREA] >= 50:
+        if stats[label_id, cv2.CC_STAT_AREA] >= 20:
             cleaned[labels == label_id] = 255
 
     return cleaned
@@ -170,10 +178,15 @@ class _GroundedSAMBackend:
         )
 
         self._torch = torch
-        if torch.cuda.is_available():
+        # HuggingFace's Grounding-DINO post-processing uses float64 internally,
+        # which MPS does not support. CUDA is fine; on Apple Silicon we fall
+        # back to CPU (one-shot inference, ~10–20 s per call). Override via
+        # GROUNDED_SAM_DEVICE=mps if your transformers version is patched.
+        forced = os.environ.get("GROUNDED_SAM_DEVICE")
+        if forced:
+            self.device = forced
+        elif torch.cuda.is_available():
             self.device = "cuda"
-        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-            self.device = "mps"
         else:
             self.device = "cpu"
 

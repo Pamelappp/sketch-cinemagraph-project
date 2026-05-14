@@ -6,19 +6,25 @@ import cv2
 import numpy as np
 
 
+# Warning threshold — intersection below this fraction triggers a diagnostic message.
+# Not used as a fallback trigger; the intersection is always the final mask.
 _MIN_INTERSECTION_FRACTION = 0.05
-_FINAL_MIN_AREA = 100
+_FINAL_MIN_AREA = 20
 
 
-def combine_masks(semantic_mask, refined_mask):
+def combine_masks(semantic_mask, refined_mask, debug_dir=None):
     """
     Fuse the semantic mask (user intent) with the refined mask (image boundaries).
 
-    The fusion rule mirrors the baseline paper: take the intersection so the
-    final mask respects both user-specified structural constraints and the
-    accurate boundaries from the image-based segmentation. When the
-    intersection is degenerate (refined backend missed the fluid region) the
-    semantic mask alone is used so the pipeline still produces motion.
+    Follows the baseline paper exactly: the final mask is the intersection of
+    the semantic mask (user-specified motion regions from sketches) and the
+    refined mask (Grounded-SAM fluid boundaries).  This simultaneously:
+      - Preserves user-specified structural constraints (semantic)
+      - Applies accurate fluid boundaries (refined)
+      - Excludes unintended fluid regions the model hallucinated
+
+    No silent fallback — if either mask is empty the intersection is empty and
+    a warning is printed so the problem can be diagnosed.
     """
     semantic = _ensure_2d_uint8(semantic_mask)
     refined = _ensure_2d_uint8(refined_mask)
@@ -31,40 +37,48 @@ def combine_masks(semantic_mask, refined_mask):
     refined_bool = refined > 0
 
     semantic_area = int(semantic_bool.sum())
+    refined_area = int(refined_bool.sum())
     intersection = np.logical_and(semantic_bool, refined_bool)
     intersection_area = int(intersection.sum())
 
     if semantic_area == 0:
-        # No user hint at all — fall back to whatever SAM found.
-        fused = refined_bool
-    elif intersection_area >= _MIN_INTERSECTION_FRACTION * semantic_area:
-        # Refine boundaries within the user-indicated region.
-        # The semantic mask is the hard upper bound: refined_mask can only
-        # shrink it, never expand it to areas like sky or background.
-        fused = intersection
-    else:
-        # Grounding-SAM missed the fluid region entirely — trust the
-        # semantic mask derived from the user's motion sketch.
-        fused = semantic_bool
+        print("[Warning] combine_masks: semantic mask is empty — no candidate regions matched motion strokes.")
+    if refined_area == 0:
+        print("[Warning] combine_masks: refined mask is empty — Grounded-SAM detected no fluid regions.")
+    if semantic_area > 0 and refined_area > 0 and intersection_area < _MIN_INTERSECTION_FRACTION * semantic_area:
+        print(
+            f"[Warning] combine_masks: intersection ({intersection_area} px) is very small relative to "
+            f"semantic ({semantic_area} px). Consider lowering DINO thresholds or checking the text query."
+        )
 
+    fused = intersection
     final = (fused.astype(np.uint8)) * 255
     final = smooth_mask_edges(final)
     final = remove_small_regions(final, min_area=_FINAL_MIN_AREA)
+
+    if debug_dir is not None:
+        import pathlib
+        d = pathlib.Path(debug_dir)
+        d.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(d / "debug_intersection.png"), (intersection.astype(np.uint8)) * 255)
+        cv2.imwrite(str(d / "debug_final.png"), final)
+
     return final
 
 
 def smooth_mask_edges(mask):
     """
     Smooth jagged mask boundaries to reduce artifacts in later warping.
+
+    Only MORPH_CLOSE is applied — MORPH_OPEN is intentionally omitted because
+    it erodes thin fluid regions such as rivers and waterfalls.
     """
     binary = _ensure_2d_uint8(mask)
 
     close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    open_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, close_kernel)
-    binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, open_kernel)
 
-    blurred = cv2.GaussianBlur(binary, (5, 5), 0)
+    blurred = cv2.GaussianBlur(binary, (3, 3), 0)
     _, binary = cv2.threshold(blurred, 127, 255, cv2.THRESH_BINARY)
     return binary
 

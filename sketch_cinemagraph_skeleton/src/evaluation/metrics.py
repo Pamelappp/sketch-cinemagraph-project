@@ -10,7 +10,34 @@ unchanged.  New standard metrics added to match the paper's evaluation protocol:
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
+
+
+def sanitize_for_json(metrics: dict) -> dict:
+    """Replace float inf/nan with None so json.dump produces valid JSON."""
+    out = {}
+    for k, v in metrics.items():
+        if isinstance(v, float) and (math.isinf(v) or math.isnan(v)):
+            out[k] = None
+        else:
+            out[k] = v
+    return out
+
+
+def compute_mask_valid(mask) -> bool:
+    """
+    Return True when the mask's foreground ratio is plausible (0.1 % – 80 %).
+
+    Outside this range the mask is likely empty (intersection failed) or inverted
+    (almost everything marked fluid).
+    """
+    total = mask.size
+    if total == 0:
+        return False
+    ratio = float((mask > 0).sum()) / total
+    return 0.001 <= ratio <= 0.8
 
 
 # ── Original metrics ──────────────────────────────────────────────────────────

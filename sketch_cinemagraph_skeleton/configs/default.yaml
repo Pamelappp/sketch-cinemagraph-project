@@ -7,23 +7,54 @@ input:
 scene:
   backend: diffusion
   image_size: null
-  seed: null
+  seed: 40
   save_reference: true
-  style_prompt: "realistic landscape photograph, natural lighting"
+  use_different_reference_seed: false
 
+  # Shared layout prior — injected into BOTH prompts
+  scene_prior: "calm lake in the foreground, visible small wooden boat on the left side, small village houses aligned along the shoreline in the middle, moonlit night sky, small distant moon, water reflections on the lake, same object positions as the input sketch"
+
+  # ControlNet shared settings
   model_id: runwayml/stable-diffusion-v1-5
   controlnet_id: lllyasviel/control_v11p_sd15_lineart
-  num_inference_steps: 25
-  guidance_scale: 7.5
-  controlnet_conditioning_scale: 0.9
+  control_type: lineart
+  sketch_binary_threshold: 220
+  control_guidance_start: 0.0
+  control_guidance_end: 0.85
   enable_cpu_offload: true
-  negative_prompt: "low quality, blurry, distorted, repeated texture, mosaic pattern, extra objects, messy composition"
+  negative_prompt: null
+
+  # ── Stylized image settings ───────────────────────────────────────────────
+  stylized:
+    style_prompt: "stylized painterly night landscape, soft brush strokes, coherent illustration, atmospheric moonlight, Monet-style"
+    extra_positive_prompt: "convert line drawing into natural painted forms, no sketch line texture"
+    extra_negative_prompt: "photorealistic, raw photo, DSLR, visible sketch lines, copied sketch strokes, glowing outlines, grey outline strokes, line drawing texture, text, letters, watermark, giant moon, oversized moon, bridge, extra bridge, extra trees, forest blocking village, missing boat, black platform, hard rectangular water, hard shoreline"
+    num_inference_steps: 40
+    guidance_scale: 6.8
+    controlnet_conditioning_scale: 0.85
+
+  # ── Realistic reference settings ─────────────────────────────────────────
+  reference:
+    style_prompt: "realistic night landscape photograph, photorealistic natural materials, natural water surface, realistic village houses, realistic moonlight, DSLR photograph, high detail"
+    extra_positive_prompt: "natural water reflections, visible boat on the left, houses remain on the shoreline, smooth natural shoreline"
+    extra_negative_prompt: "painting, illustration, cartoon, anime, stylized, brush strokes, visible sketch lines, copied sketch strokes, glowing outlines, text, letters, watermark, bridge, extra bridge, extra trees, forest blocking village, missing boat, boat removed, houses shifted to the right, floating island, black platform, hard shoreline, hard rectangular water, desert, sand dunes, dry land, giant moon, oversized moon"
+    num_inference_steps: 40
+    guidance_scale: 7.2
+    controlnet_conditioning_scale: 1.10
 
 motion_field:
   t2c_checkpoint: checkpoints/checkpoints/motion-direction-pretrained/latest_net_G.pth
 
+motion:
+  foreground_protection_dilation: 20   # px to expand protection zone beyond detected hole
+  motion_boundary_feather: 20          # px to feather flow transition beyond protection zone
+  max_displacement: 0.8                # max px per Euler frame step
+  border_protection_margin: 30         # px from image edge kept completely static
+  mask_edge_erosion: 6                 # erode safe_moving_mask to pull away from all edges
+  shoreline_protection_band: 5        # protect this many px at the top edge of water region
+
 synthesis:
-  num_frames: 120   # paper uses 120 frames (4s @ 30fps)
+  num_frames: 60
   fps: 30
 
 output:

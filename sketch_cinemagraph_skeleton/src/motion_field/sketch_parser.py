@@ -130,9 +130,6 @@ def _trace_stroke(component_mask, intensity):
         visited.add(next_pixel)
         current = next_pixel
 
-    if current != end and end in pixel_set and end not in visited:
-        path.append(end)
-
     return np.array(path, dtype=np.float32)
 
 
