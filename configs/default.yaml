@@ -2,26 +2,60 @@ input:
   structural_sketch_path: data/inputs/structural_sketch/village.png
   motion_sketch_path: data/inputs/motion_sketch/village.png
   prompt_path: data/inputs/prompts/village.txt
+  fluid_prompt_path: data/inputs/prompts/village_fluid.txt
 
 scene:
-  backend: placeholder
-  image_size: null      # null = keep sketch size; set to [W, H] to force-resize
-  seed: 42
+  backend: diffusion        # set 'placeholder' for offline / fast smoke tests
+  image_size: null          # null = round sketch size to /8; or [W, H] to force
+  seed: 40
   save_reference: true
+  use_different_reference_seed: false
+
+  # Shared layout prior — injected into BOTH stylized and reference prompts.
+  scene_prior: "calm lake in the foreground, visible small wooden boat on the left side, small village houses aligned along the shoreline in the middle, moonlit night sky, small distant moon, water reflections on the lake, same object positions as the input sketch"
+
+  # ControlNet shared settings
+  model_id: runwayml/stable-diffusion-v1-5
+  controlnet_id: lllyasviel/control_v11p_sd15_lineart
+  control_type: lineart
+  sketch_binary_threshold: 220
+  control_guidance_start: 0.0
+  control_guidance_end: 0.85
+  enable_cpu_offload: true
+  negative_prompt: null
+
+  # Stylized image: painterly Monet-style night landscape
+  stylized:
+    style_prompt: "stylized painterly night landscape, soft brush strokes, coherent illustration, atmospheric moonlight, Monet-style"
+    extra_positive_prompt: "convert line drawing into natural painted forms, no sketch line texture"
+    extra_negative_prompt: "photorealistic, raw photo, DSLR, visible sketch lines, copied sketch strokes, glowing outlines, grey outline strokes, line drawing texture, text, letters, watermark, giant moon, oversized moon, bridge, extra bridge, extra trees, forest blocking village, missing boat, black platform, hard rectangular water, hard shoreline"
+    num_inference_steps: 40
+    guidance_scale: 6.8
+    controlnet_conditioning_scale: 0.85
+
+  # Realistic reference: photo-real version used to guide motion estimation
+  reference:
+    style_prompt: "realistic night landscape photograph, photorealistic natural materials, natural water surface, realistic village houses, realistic moonlight, DSLR photograph, high detail"
+    extra_positive_prompt: "natural water reflections, visible boat on the left, houses remain on the shoreline, smooth natural shoreline"
+    extra_negative_prompt: "painting, illustration, cartoon, anime, stylized, brush strokes, visible sketch lines, copied sketch strokes, glowing outlines, text, letters, watermark, bridge, extra bridge, extra trees, forest blocking village, missing boat, boat removed, houses shifted to the right, floating island, black platform, hard shoreline, hard rectangular water, desert, sand dunes, dry land, giant moon, oversized moon"
+    num_inference_steps: 40
+    guidance_scale: 7.2
+    controlnet_conditioning_scale: 1.10
 
 motion:
-  # Choose 'heuristic' (proposal §3.5 main version) or 'learned' (advanced version).
-  # The learned backend requires a trained checkpoint produced by
-  # scripts/train_learned_predictor.py.
+  # 'heuristic' = sparse-to-dense IDW (default); 'learned' = trained MotionUNet.
   backend: heuristic
   learned:
     checkpoint_path: checkpoints/best.pt
-    device: mps          # 'cuda', 'mps' or 'cpu'
+    device: mps
     input_size: 256
     base_channels: 64
 
 synthesis:
   num_frames: 60
+  fps: 30
+  motion_scale: 1.0
+  loop_mode: linear
 
 output:
   stylized_image_path: data/outputs/scene/stylized_image.png

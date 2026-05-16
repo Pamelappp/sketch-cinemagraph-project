@@ -1,169 +1,128 @@
-"""SD 1.5 + ControlNet backend for stylized scene generation."""
-
-from __future__ import annotations
-
-import os
-import threading
-from typing import Optional
-
-import cv2
 import numpy as np
-from PIL import Image
 
-from src.types import SceneOutput
-
-
-_DEFAULT_MODEL_ID = os.environ.get(
-    "SD_MODEL_ID", "stable-diffusion-v1-5/stable-diffusion-v1-5"
-)
-# v1.1 lineart > v1.0 scribble on hand-drawn structural lines (v1.0 was trained on HED edges).
-_DEFAULT_CONTROLNET_ID = os.environ.get(
-    "CONTROLNET_ID", "lllyasviel/control_v11p_sd15_lineart"
-)
+_UNSET = object()   # distinguishes "caller passed nothing" from "caller passed None"
 
 
-class DiffusionSceneGenerator:
-    """SD + ControlNet scene generator."""
-
+class DiffusionSceneBackend:
     def __init__(self, cfg: dict) -> None:
-        self.cfg = cfg
-        self.image_size = tuple(cfg.get("image_size", [512, 512]))
-        self.seed = int(cfg.get("seed", 42))
-        self.save_reference = bool(cfg.get("save_reference", True))
+        self.model_id      = cfg.get("model_id",      "runwayml/stable-diffusion-v1-5")
+        self.controlnet_id = cfg.get("controlnet_id", "lllyasviel/control_v11p_sd15_lineart")
 
-        self.model_id = str(cfg.get("model_id", _DEFAULT_MODEL_ID))
-        self.controlnet_id = str(cfg.get("controlnet_id", _DEFAULT_CONTROLNET_ID))
-        self._device_pref: Optional[str] = cfg.get("device")
+        self.num_inference_steps           = int(cfg.get("num_inference_steps", 40))
+        self.guidance_scale                = float(cfg.get("guidance_scale", 7.5))
+        self.controlnet_conditioning_scale = float(cfg.get("controlnet_conditioning_scale", 1.0))
+        self.control_guidance_start        = float(cfg.get("control_guidance_start", 0.0))
+        self.control_guidance_end          = float(cfg.get("control_guidance_end", 0.85))
 
-        self.num_inference_steps = int(cfg.get("num_inference_steps", 25))
-        self.guidance_scale = float(cfg.get("guidance_scale", 7.5))
-        self.controlnet_conditioning_scale = float(
-            cfg.get("controlnet_conditioning_scale", 1.0)
+        self._cfg_negative_prompt = cfg.get("negative_prompt", None)
+
+        raw_seed    = cfg.get("seed", 42)
+        self.seed   = None if raw_seed is None else int(raw_seed)
+        self.image_size        = cfg.get("image_size", None)
+        self.enable_cpu_offload = bool(cfg.get("enable_cpu_offload", True))
+
+        self._pipe  = None
+        self._torch = None
+
+    def generate(self,
+                 prompt: str,
+                 control_image,
+                 seed=_UNSET,
+                 negative_prompt: str | None = None,
+                 num_inference_steps: int | None = None,
+                 guidance_scale: float | None = None,
+                 controlnet_conditioning_scale: float | None = None,
+                 control_guidance_start: float | None = None,
+                 control_guidance_end: float | None = None) -> np.ndarray:
+        """Generate one image; per-call params override instance defaults when not None.
+
+        seed: int overrides self.seed; None forces random; _UNSET reuses self.seed.
+        """
+        pipe  = self._get_pipeline()
+        torch = self._torch
+
+        actual_seed  = self.seed if seed is _UNSET else seed
+        actual_steps = num_inference_steps if num_inference_steps is not None else self.num_inference_steps
+        actual_cfg   = guidance_scale if guidance_scale is not None else self.guidance_scale
+        actual_ccs   = controlnet_conditioning_scale if controlnet_conditioning_scale is not None else self.controlnet_conditioning_scale
+        actual_cgs   = control_guidance_start if control_guidance_start is not None else self.control_guidance_start
+        actual_cge   = control_guidance_end if control_guidance_end is not None else self.control_guidance_end
+        neg          = negative_prompt if negative_prompt is not None else self._cfg_negative_prompt
+
+        generator = (
+            torch.Generator(device="cpu").manual_seed(actual_seed)
+            if actual_seed is not None else None
         )
 
-        self._lock = threading.Lock()
-        self._pipe = None
-        self._device = None
+        width, height = control_image.size
 
-    def generate(self, structural_sketch, text_prompt: str) -> SceneOutput:
-        """Stylized landscape + optional realistic reference."""
-        sketch = self._prepare_sketch(structural_sketch)
-        stylized = self.generate_stylized(sketch, text_prompt)
-        realistic = None
-        if self.save_reference:
-            realistic = self.generate_reference(sketch, text_prompt)
-        return SceneOutput(stylized_image=stylized, realistic_reference=realistic)
-
-    def generate_stylized(self, structural_sketch, text_prompt: str) -> np.ndarray:
-        sketch = self._prepare_sketch(structural_sketch)
-        prompt = self._stylized_prompt(text_prompt)
-        return self._run(sketch, prompt, seed_offset=0)
-
-    def generate_reference(self, structural_sketch, text_prompt: str) -> np.ndarray:
-        sketch = self._prepare_sketch(structural_sketch)
-        prompt = self._realistic_prompt(text_prompt)
-        return self._run(sketch, prompt, seed_offset=1)
-
-    def _stylized_prompt(self, text_prompt: str) -> str:
-        text_prompt = text_prompt.strip() or "landscape"
-        return f"{text_prompt}, beautiful landscape, detailed, cinematic lighting"
-
-    def _realistic_prompt(self, text_prompt: str) -> str:
-        text_prompt = text_prompt.strip() or "landscape"
-        return (
-            f"{text_prompt}, photo realistic, natural lighting, 4k, "
-            "high detail, sharp focus, landscape photography"
-        )
-
-    def _negative_prompt(self) -> str:
-        return (
-            "lowres, blurry, jpeg artifacts, watermark, text, signature, "
-            "deformed, distorted, ugly"
-        )
-
-    def _prepare_sketch(self, structural_sketch) -> Image.Image:
-        """Build the control image expected by ControlNet: white lines on black BG."""
-        array = np.asarray(structural_sketch)
-        if array.ndim == 2:
-            array = cv2.cvtColor(array, cv2.COLOR_GRAY2RGB)
-        if array.dtype != np.uint8:
-            if np.issubdtype(array.dtype, np.floating) and array.max() <= 1.0:
-                array = (array * 255.0).astype(np.uint8)
-            else:
-                array = np.clip(array, 0, 255).astype(np.uint8)
-        if array.shape[2] == 4:
-            array = cv2.cvtColor(array, cv2.COLOR_RGBA2RGB)
-
-        gray = cv2.cvtColor(array, cv2.COLOR_RGB2GRAY)
-        ink = (gray < 200).astype(np.uint8) * 255
-
-        # Light dilation so thin 1-px strokes survive down-sampling.
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        ink = cv2.dilate(ink, kernel, iterations=1)
-
-        ink_rgb = cv2.cvtColor(ink, cv2.COLOR_GRAY2RGB)
-
-        pil = Image.fromarray(ink_rgb)
-        pil = pil.resize(self.image_size, Image.Resampling.BILINEAR)
-        return pil
-
-    def _ensure_loaded(self) -> None:
-        if self._pipe is not None:
-            return
-        with self._lock:
-            if self._pipe is not None:
-                return
-
-            import torch
-            from diffusers import (
-                ControlNetModel,
-                StableDiffusionControlNetPipeline,
-                UniPCMultistepScheduler,
-            )
-
-            from src.motion_field.networks import resolve_device
-
-            device = resolve_device(self._device_pref)
-            # fp16 saves ~2x on CUDA; MPS has unsupported fp16 ops in some builds → fp32.
-            dtype = torch.float16 if device.type == "cuda" else torch.float32
-
-            controlnet = ControlNetModel.from_pretrained(
-                self.controlnet_id, torch_dtype=dtype
-            )
-            pipe = StableDiffusionControlNetPipeline.from_pretrained(
-                self.model_id,
-                controlnet=controlnet,
-                torch_dtype=dtype,
-                safety_checker=None,
-                requires_safety_checker=False,
-            )
-            pipe.scheduler = UniPCMultistepScheduler.from_config(pipe.scheduler.config)
-            pipe = pipe.to(device)
-
-            # Attention slicing is important on MPS (unified memory).
-            try:
-                pipe.enable_attention_slicing()
-            except Exception:
-                pass
-
-            self._pipe = pipe
-            self._device = device
-
-    def _run(self, control_image: Image.Image, prompt: str, seed_offset: int) -> np.ndarray:
-        self._ensure_loaded()
-        import torch
-
-        generator = torch.Generator(device="cpu").manual_seed(self.seed + seed_offset)
-        result = self._pipe(
+        kwargs = dict(
             prompt=prompt,
-            negative_prompt=self._negative_prompt(),
             image=control_image,
-            num_inference_steps=self.num_inference_steps,
-            guidance_scale=self.guidance_scale,
-            controlnet_conditioning_scale=self.controlnet_conditioning_scale,
+            negative_prompt=neg,
+            num_inference_steps=actual_steps,
+            guidance_scale=actual_cfg,
+            controlnet_conditioning_scale=actual_ccs,
             generator=generator,
-            width=self.image_size[0],
-            height=self.image_size[1],
+            height=height,
+            width=width,
         )
-        pil_out = result.images[0]
-        return np.array(pil_out.convert("RGB"))
+
+        # control_guidance_start/end require diffusers ≥ 0.19; fall back gracefully.
+        try:
+            kwargs["control_guidance_start"] = actual_cgs
+            kwargs["control_guidance_end"]   = actual_cge
+            result = pipe(**kwargs)
+        except TypeError:
+            del kwargs["control_guidance_start"], kwargs["control_guidance_end"]
+            result = pipe(**kwargs)
+
+        return np.asarray(result.images[0].convert("RGB"))
+
+    def _get_pipeline(self):
+        if self._pipe is not None:
+            return self._pipe
+
+        import torch
+        from diffusers import (
+            ControlNetModel,
+            StableDiffusionControlNetPipeline,
+            UniPCMultistepScheduler,
+        )
+
+        self._torch = torch
+
+        if torch.cuda.is_available():
+            device      = "cuda"
+            torch_dtype = torch.float16
+        elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+            # Apple Silicon GPU. fp16 attention is unstable on MPS; keep fp32.
+            device      = "mps"
+            torch_dtype = torch.float32
+        else:
+            device      = "cpu"
+            torch_dtype = torch.float32
+
+        controlnet = ControlNetModel.from_pretrained(
+            self.controlnet_id,
+            torch_dtype=torch_dtype,
+        )
+
+        pipe = StableDiffusionControlNetPipeline.from_pretrained(
+            self.model_id,
+            controlnet=controlnet,
+            torch_dtype=torch_dtype,
+        )
+
+        pipe.scheduler = UniPCMultistepScheduler.from_config(pipe.scheduler.config)
+
+        if device == "cuda":
+            if self.enable_cpu_offload:
+                pipe.enable_model_cpu_offload()
+            else:
+                pipe.to(device)
+        else:
+            pipe.to(device)
+
+        self._pipe = pipe
+        return self._pipe

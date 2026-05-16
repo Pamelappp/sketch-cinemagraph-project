@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict
 
+import cv2
 import numpy as np
 
 from src.scene_generation.generator import SceneGenerator
@@ -16,6 +17,14 @@ from src.motion_field.smooth import smooth_motion_field
 from src.synthesis.warp import warp_frames
 from src.synthesis.loop import enforce_loop, make_pingpong_loop
 from src.synthesis.export_video import export_mp4, export_gif
+
+
+def _resize_to(array: np.ndarray, target_hw: tuple, is_mask: bool = False) -> np.ndarray:
+    target_h, target_w = target_hw
+    if array.shape[:2] == (target_h, target_w):
+        return array
+    interp = cv2.INTER_NEAREST if is_mask else cv2.INTER_LINEAR
+    return cv2.resize(array, (target_w, target_h), interpolation=interp)
 
 
 class CinemagraphPipeline:
@@ -49,6 +58,12 @@ class CinemagraphPipeline:
             }
         else:
             scene_out = self._scene_generation(structural_sketch, text_prompt)
+
+        # The scene generator may round dimensions to /8 for diffusion;
+        # align sketches downstream so mask/flow/image stay the same shape.
+        target_h, target_w = scene_out["stylized_image"].shape[:2]
+        structural_sketch = _resize_to(structural_sketch, (target_h, target_w), is_mask=False)
+        motion_sketch = _resize_to(motion_sketch, (target_h, target_w), is_mask=False)
 
         # Colour-based mask expansion only fires for real photos: diffusion outputs
         # unify hues across the canvas and would cause the mask to cover everything.

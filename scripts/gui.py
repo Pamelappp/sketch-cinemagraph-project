@@ -181,19 +181,30 @@ def run_pipeline(
 
     stub_grounded_sam_if_needed(skip_grounded_sam)
 
+    # Start from the tuned default.yaml (teammate's scene_prior + per-mode prompts
+    # for diffusion) and overlay the GUI selections on top.
+    from src.io_utils import load_config
+    default_cfg_path = ROOT / "configs" / "default.yaml"
+    base_cfg = load_config(default_cfg_path) if default_cfg_path.exists() else {}
+
+    scene_cfg = dict(base_cfg.get("scene", {}))
+    scene_cfg.update({
+        "backend": scene_backend,
+        "image_size": [image_size, image_size],
+        "save_reference": False,
+        "controlnet_id": {
+            "lineart_v1.1": "lllyasviel/control_v11p_sd15_lineart",
+            "scribble_v1.0": "lllyasviel/sd-controlnet-scribble",
+        }.get(controlnet_model, scene_cfg.get("controlnet_id", "lllyasviel/control_v11p_sd15_lineart")),
+    })
+    # Override per-mode steps/scales so the GUI sliders still apply.
+    sty = dict(scene_cfg.get("stylized", {}))
+    sty["num_inference_steps"] = num_inference_steps
+    sty["controlnet_conditioning_scale"] = controlnet_scale
+    scene_cfg["stylized"] = sty
+
     cfg = {
-        "scene": {
-            "backend": scene_backend,
-            "image_size": [image_size, image_size],
-            "save_reference": False,
-            "num_inference_steps": num_inference_steps,
-            "guidance_scale": 7.5,
-            "controlnet_conditioning_scale": controlnet_scale,
-            "controlnet_id": {
-                "lineart_v1.1": "lllyasviel/control_v11p_sd15_lineart",
-                "scribble_v1.0": "lllyasviel/sd-controlnet-scribble",
-            }.get(controlnet_model, "lllyasviel/control_v11p_sd15_lineart"),
-        },
+        "scene": scene_cfg,
         "motion": {"backend": motion_backend},
         "synthesis": {
             "num_frames": num_frames,
