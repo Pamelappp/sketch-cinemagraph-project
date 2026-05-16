@@ -42,11 +42,12 @@ class DiffusionSceneBackend:
         torch = self._torch
 
         actual_seed  = self.seed if seed is _UNSET else seed
-        actual_steps = num_inference_steps if num_inference_steps is not None else self.num_inference_steps
-        actual_cfg   = guidance_scale if guidance_scale is not None else self.guidance_scale
-        actual_ccs   = controlnet_conditioning_scale if controlnet_conditioning_scale is not None else self.controlnet_conditioning_scale
-        actual_cgs   = control_guidance_start if control_guidance_start is not None else self.control_guidance_start
-        actual_cge   = control_guidance_end if control_guidance_end is not None else self.control_guidance_end
+        actual_steps = int(num_inference_steps if num_inference_steps is not None else self.num_inference_steps)
+        # Cast to Python float — diffusers 0.38+ uses strict isinstance(..., float).
+        actual_cfg   = float(guidance_scale if guidance_scale is not None else self.guidance_scale)
+        actual_ccs   = float(controlnet_conditioning_scale if controlnet_conditioning_scale is not None else self.controlnet_conditioning_scale)
+        actual_cgs   = float(control_guidance_start if control_guidance_start is not None else self.control_guidance_start)
+        actual_cge   = float(control_guidance_end if control_guidance_end is not None else self.control_guidance_end)
         neg          = negative_prompt if negative_prompt is not None else self._cfg_negative_prompt
 
         generator = (
@@ -73,7 +74,9 @@ class DiffusionSceneBackend:
             kwargs["control_guidance_start"] = actual_cgs
             kwargs["control_guidance_end"]   = actual_cge
             result = pipe(**kwargs)
-        except TypeError:
+        except TypeError as err:
+            if "control_guidance" not in str(err):
+                raise
             del kwargs["control_guidance_start"], kwargs["control_guidance_end"]
             result = pipe(**kwargs)
 
