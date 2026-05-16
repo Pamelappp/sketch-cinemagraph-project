@@ -1,28 +1,27 @@
-# model checkpoints / weights
-*.ckpt
-*.pth
-*.pt
-*.safetensors
-*.onnx
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
 
-**/checkpoints/
-**/checkpoint/
-**/weights/
-**/pretrained/
-**/models/checkpoints/
+# Virtual environments
+.venv/
+venv/
+env/
 
-# generated outputs, optional but recommended
-**/data/outputs/
-**/outputs/
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
 
-# checkpoints / large model files
-sketch_cinemagraph_skeleton/checkpoints.tar
-**/checkpoints.tar
-*.ckpt
-*.pth
-*.pt
-*.safetensors
-*.onnx
-**/checkpoints/
-**/weights/
-**/pretrained/
+# Pipeline outputs
+data/outputs/
+data/raw/
+
+# Model checkpoints (too large for git)
+checkpoints/
+checkpoints_*/
+
+# Chat logs
+chatlog/

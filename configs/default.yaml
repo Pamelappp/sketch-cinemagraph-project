@@ -1,0 +1,30 @@
+input:
+  structural_sketch_path: data/inputs/structural_sketch/example.png
+  motion_sketch_path: data/inputs/motion_sketch/example.png
+  prompt_path: data/inputs/prompts/example.txt
+
+scene:
+  backend: placeholder
+  image_size: [512, 512]
+  seed: 42
+  save_reference: true
+
+motion:
+  # Choose 'heuristic' (proposal §3.5 main version) or 'learned' (advanced version).
+  # The learned backend requires a trained checkpoint produced by
+  # scripts/train_learned_predictor.py.
+  backend: heuristic
+  learned:
+    checkpoint_path: checkpoints/best.pt
+    device: mps          # 'cuda', 'mps' or 'cpu'
+    input_size: 256
+    base_channels: 64
+
+synthesis:
+  num_frames: 60
+
+output:
+  stylized_image_path: data/outputs/scene/stylized_image.png
+  realistic_reference_path: data/outputs/scene/realistic_reference.png
+  debug_dir: data/outputs/debug
+  final_video_path: data/outputs/cinemagraphs/output.gif
