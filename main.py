@@ -1,26 +1,9 @@
-"""Command-line entry point for the sketch-guided cinemagraph project.
-
-Reads a YAML config, loads a structural sketch / motion sketch / prompt,
-runs the full ``CinemagraphPipeline`` and writes the looping cinemagraph
-plus all intermediate visualisations to disk.
-
-Usage::
-
-    python main.py
-    python main.py --config configs/default.yaml
-    python main.py --config configs/my_run.yaml --debug
-
-The default config file is ``configs/default.yaml``.
-"""
+"""CLI entry point: run the full CinemagraphPipeline from a YAML config."""
 
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
-
-import cv2
-import numpy as np
 
 from src.io_utils import load_config, load_user_input, ensure_dir, save_image, save_mask, save_motion_field
 from src.pipeline import CinemagraphPipeline

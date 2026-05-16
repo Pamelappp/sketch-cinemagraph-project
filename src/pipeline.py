@@ -19,20 +19,7 @@ from src.synthesis.export_video import export_mp4, export_gif
 
 
 class CinemagraphPipeline:
-    """
-    A simplified end-to-end pipeline for the course project.
-
-    Main stages:
-    1. Scene generation
-    2. Fluid mask extraction
-    3. Motion field estimation
-    4. Cinemagraph synthesis and export
-
-    This version is intentionally lightweight:
-    - no full diffusion motion model
-    - no deep-space splatting
-    - priority is a runnable and explainable pipeline
-    """
+    """End-to-end pipeline: scene gen → fluid mask → motion field → loop synthesis."""
 
     def __init__(self, cfg: Dict[str, Any]) -> None:
         self.cfg = cfg
@@ -44,7 +31,6 @@ class CinemagraphPipeline:
         if self.motion_backend == "learned":
             # Lazy-import so the heuristic path stays import-light.
             from src.motion_field.learned_predictor import LearnedMotionPredictor
-
             self._learned_predictor = LearnedMotionPredictor(motion_cfg.get("learned", {}))
 
     def run(
@@ -54,35 +40,7 @@ class CinemagraphPipeline:
         text_prompt: str,
         pre_generated_image: np.ndarray | None = None,
     ) -> Dict[str, Any]:
-        """
-        Run the full project pipeline.
-
-        Args:
-            structural_sketch: black-on-white scene-layout sketch. May be a
-                blank canvas in image-based mode; the fluid mask then
-                falls back to dilated motion strokes + Grounded-SAM.
-            motion_sketch: white-to-black gradient strokes encoding flow.
-            text_prompt: scene/style description for SD; also used as the
-                Grounded-SAM query.
-            pre_generated_image: optional H x W x 3 RGB photo / image.
-                When provided the scene-generation stage is skipped and
-                this image is used as both the stylized output and the
-                realistic reference. This is the paper's §5.6
-                "image-based cinemagraph synthesis" mode.
-
-        Returns a dictionary containing:
-        - stylized_image
-        - realistic_reference
-        - semantic_mask
-        - refined_mask
-        - final_fluid_mask
-        - sparse_constraints
-        - dense_motion_field
-        - frames
-        - video_path
-        - gif_path
-        """
-        # Photo mode: user uploaded a real photo — skip scene generation.
+        """Run all four stages; pre_generated_image enables photo-input mode (§5.6)."""
         photo_mode = pre_generated_image is not None
         if photo_mode:
             scene_out = {
@@ -92,12 +50,8 @@ class CinemagraphPipeline:
         else:
             scene_out = self._scene_generation(structural_sketch, text_prompt)
 
-        # Colour-based mask expansion is only reliable on real photographs
-        # where the water/sky has a distinctive colour cluster. On diffusion-
-        # generated images the stylisation can unify colours across the whole
-        # canvas, causing the mask to cover the entire image. So we only pass
-        # the reference image when in photo mode; sketch mode relies on the
-        # structural sketch's closed regions instead.
+        # Colour-based mask expansion only fires for real photos: diffusion outputs
+        # unify hues across the canvas and would cause the mask to cover everything.
         mask_ref = scene_out["stylized_image"] if photo_mode else None
         mask_out = self._fluid_mask_extraction(
             structural_sketch=structural_sketch,
@@ -128,20 +82,10 @@ class CinemagraphPipeline:
         }
 
     def _scene_generation(self, structural_sketch: np.ndarray, text_prompt: str) -> Dict[str, Any]:
-        """
-        Generate stylized scene image and optional realistic reference.
-
-        TODO later:
-        - replace mock/stub generator with actual model inference
-        - support style prompts and negative prompts
-        - cache outputs to avoid repeated generation during debugging
-        """
         scene_out = self.scene_generator.generate(
             structural_sketch=structural_sketch,
             text_prompt=text_prompt,
         )
-        # ``SceneGenerator.generate`` returns a dataclass; downstream stages
-        # treat the scene output like a dictionary, so unwrap it here.
         if hasattr(scene_out, "stylized_image"):
             return {
                 "stylized_image": scene_out.stylized_image,
@@ -157,17 +101,7 @@ class CinemagraphPipeline:
         text_prompt: str,
         reference_image: np.ndarray | None = None,
     ) -> Dict[str, Any]:
-        """
-        Create the final fluid mask using:
-        1. semantic mask from sketch input (optionally expanded via image colour)
-        2. refined image-based mask
-        3. mask postprocessing / fusion
-
-        When *reference_image* is available the semantic mask is automatically
-        grown from the stroke seed positions to the full connected region of
-        similar colour in the image — so the entire lake / sky animates, not
-        only the pixels directly under the user's brush strokes.
-        """
+        """semantic_mask (sketch + optional colour expansion) ∩ Grounded-SAM refined mask."""
         semantic_mask = build_semantic_mask(
             structural_sketch=structural_sketch,
             motion_sketch=motion_sketch,
@@ -196,19 +130,7 @@ class CinemagraphPipeline:
         final_fluid_mask: np.ndarray,
         reference_image: np.ndarray,
     ) -> Dict[str, Any]:
-        """
-        Convert motion sketch into a dense motion field.
-
-        Two backends are supported (selected via cfg["motion"]["backend"]):
-
-        - ``heuristic`` (default): proposal §3.5 main version. Parses strokes,
-          builds sparse vector constraints, propagates them by k-nearest
-          inverse-distance weighting, then smooths.
-        - ``learned``: proposal §3.5 advanced version. Uses
-          ``LearnedMotionPredictor`` (a U-Net trained on
-          (image, sketch, mask) -> flow) to predict the dense field directly,
-          then applies the same smoothing post-process.
-        """
+        """Dense flow from motion sketch via 'heuristic' KNN-IDW or 'learned' U-Net."""
         strokes = parse_motion_sketch(motion_sketch)
         sparse_constraints = build_sparse_constraints(
             strokes=strokes,
@@ -244,19 +166,10 @@ class CinemagraphPipeline:
         dense_motion_field: np.ndarray,
         final_fluid_mask: np.ndarray,
     ) -> Dict[str, Any]:
-        """
-        Synthesize looping cinemagraph frames and export outputs.
-
-        Current simplified implementation:
-        - warp dynamic region only
-        - preserve static background
-        - construct loop by ping-pong or explicit last=first
-        """
         synth_cfg = self.cfg.get("synthesis", {})
         num_frames = int(synth_cfg.get("num_frames", 48))
         fps = int(synth_cfg.get("fps", 12))
-        # Default 'linear': the warp module already produces a closed Eulerian
-        # loop where motion flows in a single direction; no need for ping-pong.
+        # 'linear' is the default — symmetric splatting already closes the loop.
         loop_mode = synth_cfg.get("loop_mode", "linear")
 
         frames = warp_frames(

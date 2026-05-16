@@ -17,15 +17,7 @@ _SMOOTH_WINDOW = 5
 
 
 def parse_motion_sketch(motion_sketch):
-    """
-    Extract motion strokes from the input motion sketch.
-
-    The motion sketch follows the convention of the baseline paper: each
-    stroke is drawn as a polyline shaded with a white-to-black gradient,
-    where the white end marks the start of motion and the black end marks
-    the destination. This function converts the raster image into a list of
-    ordered, oriented point sequences ready for vectorisation.
-    """
+    """Extract oriented strokes (white-to-black gradient polylines) from the raster."""
     intensity = _to_grayscale(motion_sketch)
     binary = (intensity < _STROKE_THRESHOLD).astype(np.uint8)
     if binary.sum() == 0:
@@ -55,12 +47,7 @@ def parse_motion_sketch(motion_sketch):
 
 
 def resample_strokes(strokes, num_points: int = _DEFAULT_NUM_POINTS):
-    """
-    Resample each stroke to a fixed number of evenly spaced points.
-
-    Mirrors the baseline paper, which resamples each user-drawn stroke to
-    20 control points before downstream processing.
-    """
+    """Resample each stroke to a fixed number of evenly spaced points."""
     resampled: List[np.ndarray] = []
     for stroke in strokes:
         stroke = np.asarray(stroke, dtype=np.float32)
@@ -81,9 +68,7 @@ def resample_strokes(strokes, num_points: int = _DEFAULT_NUM_POINTS):
 
 
 def smooth_strokes(strokes):
-    """
-    Apply moving-average smoothing to each stroke trajectory.
-    """
+    """Moving-average smoothing along each stroke trajectory."""
     smoothed: List[np.ndarray] = []
     kernel = np.ones(_SMOOTH_WINDOW, dtype=np.float32) / _SMOOTH_WINDOW
     for stroke in strokes:
@@ -98,9 +83,7 @@ def smooth_strokes(strokes):
 
 
 def _trace_stroke(component_mask, intensity):
-    """
-    Walk the 1-pixel-wide skeleton of a stroke from one endpoint to the other.
-    """
+    """Walk the 1-pixel-wide skeleton from one endpoint to the other."""
     pixel_set = {tuple(p) for p in np.argwhere(component_mask)}
     if not pixel_set:
         return None

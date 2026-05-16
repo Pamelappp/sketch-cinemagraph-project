@@ -1,22 +1,4 @@
-"""Datasets and synthetic data generation for the learned motion predictor.
-
-Two dataset classes are provided:
-
-- ``SyntheticMotionDataset`` procedurally produces (image, sketch, mask, flow)
-  tuples with smooth motion fields and matching streamline sketches. It needs
-  no external data and is intended for end-to-end pipeline verification and
-  short demo trainings.
-
-- ``LandscapeMotionDataset`` reads pre-processed tuples from disk in the
-  layout produced by ``scripts/prepare_dataset.py``. Each sample lives in its
-  own directory with ``image.png``, ``sketch.png``, ``mask.png`` and
-  ``flow.npy``.
-
-Both datasets return tensors shaped to feed ``MotionUNet``:
-    inputs : (7, H, W) float32 in [0, 1]  -- RGB image | RGB sketch | mask
-    flow   : (2, H, W) float32 pixel units (dx, dy)
-    mask   : (1, H, W) float32 {0, 1}     -- used to weight the loss
-"""
+"""Synthetic and disk-backed datasets for the learned motion predictor."""
 
 from __future__ import annotations
 
@@ -30,11 +12,6 @@ import cv2
 import numpy as np
 import torch
 from torch.utils.data import Dataset
-
-
-# ---------------------------------------------------------------------------
-# Synthetic data generator
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -77,7 +54,7 @@ class SyntheticMotionDataset(Dataset):
 
 
 def _make_landscape_scene(size: int, rng: np.random.Generator) -> Tuple[np.ndarray, np.ndarray]:
-    """Render a simple sky/ground/water layout and return RGB image + fluid mask."""
+    """Render sky/ground/water layout; return (RGB image, fluid mask)."""
     image = np.zeros((size, size, 3), dtype=np.uint8)
     mask = np.zeros((size, size), dtype=np.uint8)
 
@@ -113,14 +90,12 @@ def _make_landscape_scene(size: int, rng: np.random.Generator) -> Tuple[np.ndarr
     image[sky_height:water_top] = ground_color
     image[water_top:] = water_color
 
-    # Add a soft horizon gradient and Gaussian noise so the input has texture.
     noise = rng.normal(0.0, 6.0, image.shape)
     image = np.clip(image.astype(np.float32) + noise, 0, 255).astype(np.uint8)
     image = cv2.GaussianBlur(image, (3, 3), 0)
 
     mask[water_top:] = 255
 
-    # Random low-amplitude horizon perturbation makes the mask boundary less flat.
     perturb = rng.integers(-5, 6, size)
     for x in range(size):
         boundary = max(0, min(size - 1, water_top + int(perturb[x])))
@@ -135,7 +110,7 @@ def _make_smooth_flow(
     max_magnitude: float,
     rng: np.random.Generator,
 ) -> np.ndarray:
-    """Construct a smooth flow field via a sum of low-frequency sinusoids."""
+    """Smooth flow field built from a sum of low-frequency sinusoids."""
     ys, xs = np.meshgrid(np.arange(size), np.arange(size), indexing="ij")
     norm_y = ys.astype(np.float32) / size
     norm_x = xs.astype(np.float32) / size
@@ -152,7 +127,7 @@ def _make_smooth_flow(
         flow[..., 0] += amp_x * np.sin(2 * math.pi * (kx * norm_x + ky * norm_y) + phase_x)
         flow[..., 1] += amp_y * np.sin(2 * math.pi * (kx * norm_x + ky * norm_y) + phase_y)
 
-    # Bias the flow toward a dominant horizontal direction (typical of water surfaces).
+    # Bias toward a dominant horizontal direction (typical of water surfaces).
     dominant = rng.choice([-1.0, 1.0])
     flow[..., 0] += dominant * 0.6
 
@@ -172,7 +147,7 @@ def _flow_to_motion_sketch(
     rng: np.random.Generator,
     thickness: int = 3,
 ) -> np.ndarray:
-    """Trace a few streamlines through the flow and render them with a white-to-black gradient."""
+    """Render a few flow streamlines as white-to-black gradient strokes."""
     h, w = mask.shape
     sketch = np.full((h, w, 3), 255, dtype=np.uint8)
     valid = np.argwhere(mask > 0)
@@ -217,26 +192,8 @@ def _flow_to_motion_sketch(
     return sketch
 
 
-# ---------------------------------------------------------------------------
-# Real-data loader
-# ---------------------------------------------------------------------------
-
-
 class LandscapeMotionDataset(Dataset):
-    """
-    Loads pre-processed (image, sketch, mask, flow) tuples from disk.
-
-    Expected on-disk layout (one directory per sample)::
-
-        root/
-            sample_000001/
-                image.png   # H x W x 3 uint8 RGB
-                sketch.png  # H x W x 3 uint8 RGB (white-to-black gradient strokes)
-                mask.png    # H x W   uint8 {0, 255}
-                flow.npy    # H x W x 2 float32 (dx, dy)
-            sample_000002/
-                ...
-    """
+    """Disk-backed dataset; one directory per sample with image.png/sketch.png/mask.png/flow.npy."""
 
     def __init__(
         self,
@@ -272,11 +229,6 @@ class LandscapeMotionDataset(Dataset):
             image, sketch, mask, flow = _augment(image, sketch, mask, flow)
 
         return _to_training_tensors(image, sketch, mask, flow)
-
-
-# ---------------------------------------------------------------------------
-# Shared utilities
-# ---------------------------------------------------------------------------
 
 
 def _to_training_tensors(

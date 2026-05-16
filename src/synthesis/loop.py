@@ -1,10 +1,4 @@
-"""Loop construction utilities.
-
-NOTE: This is a minimal Member-B-side stub written so the end-to-end
-pipeline can be smoke-tested. Member C is expected to replace these with
-higher-quality looping (e.g. deep-feature symmetric splatting, cross-fade
-boundary blending) for the final report.
-"""
+"""Loop construction utilities."""
 
 from __future__ import annotations
 
@@ -14,14 +8,7 @@ import numpy as np
 
 
 def enforce_loop(frames: List[np.ndarray]) -> List[np.ndarray]:
-    """
-    Make a frame sequence end where it began so the GIF/MP4 plays seamlessly.
-
-    Strategy: append the first frame at the end if the sequence does not
-    already close on itself. ``warp.build_loop_displacement`` uses a sin
-    factor so frames already form a near-loop; this just guarantees the
-    final boundary is exact.
-    """
+    """Append a copy of the first frame so the GIF/MP4 wraps exactly."""
     if not frames:
         return frames
     last = frames[-1]
@@ -34,14 +21,7 @@ def enforce_loop(frames: List[np.ndarray]) -> List[np.ndarray]:
 
 
 def make_pingpong_loop(frames: List[np.ndarray]) -> List[np.ndarray]:
-    """
-    Build a ping-pong loop: forward sequence followed by the reverse.
-
-    Given frames [f0, f1, ..., fN-1] returns
-    [f0, f1, ..., fN-1, fN-2, ..., f1] so the playback bounces back without
-    a hard cut. The duplicated boundary frames (f0 at the wrap, fN-1 at
-    the turnaround) are skipped to avoid a visible pause.
-    """
+    """Forward sequence followed by the reverse (boundary duplicates dropped)."""
     if not frames:
         return frames
     if len(frames) == 1:
@@ -52,10 +32,7 @@ def make_pingpong_loop(frames: List[np.ndarray]) -> List[np.ndarray]:
 
 
 def blend_loop_boundary(frames: List[np.ndarray], window: int = 4) -> List[np.ndarray]:
-    """
-    Cross-fade the last ``window`` frames into the first ``window`` to soften
-    a hard wrap point. Returns a new list; original frames untouched.
-    """
+    """Cross-fade the last `window` frames into the first `window` to soften the wrap."""
     if not frames or window <= 0 or len(frames) <= 2 * window:
         return list(frames)
 
@@ -71,11 +48,7 @@ def blend_loop_boundary(frames: List[np.ndarray], window: int = 4) -> List[np.nd
 
 
 def temporal_smooth_frames(frames: List[np.ndarray], radius: int = 1) -> List[np.ndarray]:
-    """
-    Light temporal smoothing: average each frame with its neighbours within
-    ``radius`` frames. Reduces high-frequency flicker without flattening
-    intentional motion.
-    """
+    """Average each frame with ±radius neighbours to reduce high-freq flicker."""
     if not frames or radius <= 0:
         return list(frames)
 

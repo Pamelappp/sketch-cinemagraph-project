@@ -1,33 +1,4 @@
-"""Stable Diffusion + ControlNet backend for scene generation.
-
-Implements the Sketch2Cinemagraph paper's stylized landscape image
-generation step using off-the-shelf pretrained models:
-
-- Base LDM   : runwayml/stable-diffusion-v1-5 (or any SD 1.5 mirror)
-- ControlNet : lllyasviel/sd-controlnet-scribble for sketch conditioning
-
-The paper additionally fine-tunes the LDM with DreamBooth on the Holynski
-landscape dataset for better water/waterfall textures. We skip that step
-for the course-project MVP — the pretrained ControlNet still produces
-visually coherent stylized landscapes from freehand sketches, which is
-enough to demo the full Sketch2Cinemagraph pipeline.
-
-Usage::
-
-    cfg = {
-        "backend": "diffusion",
-        "image_size": [512, 512],
-        "model_id": "runwayml/stable-diffusion-v1-5",   # optional override
-        "controlnet_id": "lllyasviel/sd-controlnet-scribble",
-        "device": "mps",                                  # optional override
-        "num_inference_steps": 25,
-        "guidance_scale": 7.5,
-        "controlnet_conditioning_scale": 1.1,
-        "seed": 42,
-    }
-    generator = DiffusionSceneGenerator(cfg)
-    out = generator.generate(structural_sketch, "ocean waves under blue sky")
-"""
+"""SD 1.5 + ControlNet backend for stylized scene generation."""
 
 from __future__ import annotations
 
@@ -45,16 +16,14 @@ from src.types import SceneOutput
 _DEFAULT_MODEL_ID = os.environ.get(
     "SD_MODEL_ID", "stable-diffusion-v1-5/stable-diffusion-v1-5"
 )
-# ControlNet v1.1 lineart model: much better at interpreting hand-drawn
-# structural line art (mountain silhouettes, horizon lines) compared to
-# the v1.0 scribble model which was trained on HED edge maps.
+# v1.1 lineart > v1.0 scribble on hand-drawn structural lines (v1.0 was trained on HED edges).
 _DEFAULT_CONTROLNET_ID = os.environ.get(
     "CONTROLNET_ID", "lllyasviel/control_v11p_sd15_lineart"
 )
 
 
 class DiffusionSceneGenerator:
-    """SD + ControlNet scene generator that mirrors the proposal §3.3 spec."""
+    """SD + ControlNet scene generator."""
 
     def __init__(self, cfg: dict) -> None:
         self.cfg = cfg
@@ -76,10 +45,8 @@ class DiffusionSceneGenerator:
         self._pipe = None
         self._device = None
 
-    # ------------------------------------------------------------------ API
-
     def generate(self, structural_sketch, text_prompt: str) -> SceneOutput:
-        """Produce a stylized landscape image plus a realistic reference."""
+        """Stylized landscape + optional realistic reference."""
         sketch = self._prepare_sketch(structural_sketch)
         stylized = self.generate_stylized(sketch, text_prompt)
         realistic = None
@@ -88,22 +55,17 @@ class DiffusionSceneGenerator:
         return SceneOutput(stylized_image=stylized, realistic_reference=realistic)
 
     def generate_stylized(self, structural_sketch, text_prompt: str) -> np.ndarray:
-        """Stylized output: prompt is taken at face value (user controls style)."""
         sketch = self._prepare_sketch(structural_sketch)
         prompt = self._stylized_prompt(text_prompt)
         return self._run(sketch, prompt, seed_offset=0)
 
     def generate_reference(self, structural_sketch, text_prompt: str) -> np.ndarray:
-        """Realistic reference for motion estimation: forces a photo-realistic style."""
         sketch = self._prepare_sketch(structural_sketch)
         prompt = self._realistic_prompt(text_prompt)
         return self._run(sketch, prompt, seed_offset=1)
 
-    # ------------------------------------------------------------------ internals
-
     def _stylized_prompt(self, text_prompt: str) -> str:
         text_prompt = text_prompt.strip() or "landscape"
-        # Encourage cohesive landscape rendering; user's own style words pass through.
         return f"{text_prompt}, beautiful landscape, detailed, cinematic lighting"
 
     def _realistic_prompt(self, text_prompt: str) -> str:
@@ -120,14 +82,7 @@ class DiffusionSceneGenerator:
         )
 
     def _prepare_sketch(self, structural_sketch) -> Image.Image:
-        """Convert a sketch array into the control image that ControlNet expects.
-
-        - **lineart** (v1.1 default): expects a clean line drawing — white
-          strokes on a black background. The model interprets lines as
-          structural boundaries (edges, silhouettes) rather than painting
-          them literally.
-        - **scribble** (v1.0 fallback): same convention (white-on-black).
-        """
+        """Build the control image expected by ControlNet: white lines on black BG."""
         array = np.asarray(structural_sketch)
         if array.ndim == 2:
             array = cv2.cvtColor(array, cv2.COLOR_GRAY2RGB)
@@ -139,8 +94,6 @@ class DiffusionSceneGenerator:
         if array.shape[2] == 4:
             array = cv2.cvtColor(array, cv2.COLOR_RGBA2RGB)
 
-        # White lines on black background — the convention shared by both
-        # scribble and lineart ControlNet variants.
         gray = cv2.cvtColor(array, cv2.COLOR_RGB2GRAY)
         ink = (gray < 200).astype(np.uint8) * 255
 
@@ -171,8 +124,7 @@ class DiffusionSceneGenerator:
             from src.motion_field.networks import resolve_device
 
             device = resolve_device(self._device_pref)
-            # SD on MPS is most reliable in fp32; fp16 has unsupported ops on
-            # some MPS builds. CUDA happily uses fp16 for ~2x speedup.
+            # fp16 saves ~2x on CUDA; MPS has unsupported fp16 ops in some builds → fp32.
             dtype = torch.float16 if device.type == "cuda" else torch.float32
 
             controlnet = ControlNetModel.from_pretrained(
@@ -188,7 +140,7 @@ class DiffusionSceneGenerator:
             pipe.scheduler = UniPCMultistepScheduler.from_config(pipe.scheduler.config)
             pipe = pipe.to(device)
 
-            # Memory savers — important on MPS where unified memory is shared.
+            # Attention slicing is important on MPS (unified memory).
             try:
                 pipe.enable_attention_slicing()
             except Exception:

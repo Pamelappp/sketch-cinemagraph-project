@@ -11,9 +11,7 @@ _DEFAULT_MAX_MAGNITUDE = 8.0
 
 
 def smooth_motion_field(flow, mask):
-    """
-    Smooth the dense motion field while keeping motion confined to the mask.
-    """
+    """Gaussian-smooth flow, zero it outside the mask, then clip per-pixel magnitude."""
     flow = np.asarray(flow, dtype=np.float32)
     smoothed = np.empty_like(flow)
     smoothed[..., 0] = gaussian_filter(flow[..., 0], sigma=_GAUSSIAN_SIGMA)
@@ -25,9 +23,7 @@ def smooth_motion_field(flow, mask):
 
 
 def enforce_mask_boundary(flow, mask):
-    """
-    Zero-out motion outside the valid fluid mask region.
-    """
+    """Zero motion outside the fluid mask."""
     flow = np.asarray(flow, dtype=np.float32)
     mask_2d = mask if mask.ndim == 2 else mask[:, :, 0]
     mask_factor = (mask_2d > 0).astype(np.float32)[..., None]
@@ -35,10 +31,7 @@ def enforce_mask_boundary(flow, mask):
 
 
 def normalize_motion_magnitude(flow, max_magnitude=None):
-    """
-    Clip per-pixel motion vectors so their magnitude does not exceed
-    ``max_magnitude`` while preserving direction.
-    """
+    """Clip per-pixel magnitude to max_magnitude, preserving direction."""
     flow = np.asarray(flow, dtype=np.float32)
     if max_magnitude is None or max_magnitude <= 0:
         return flow

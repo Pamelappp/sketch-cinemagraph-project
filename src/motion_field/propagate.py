@@ -12,10 +12,7 @@ _EPS = 1e-6
 
 
 def propagate_sparse_to_dense(constraints, mask):
-    """
-    Expand sparse motion constraints into a dense motion field inside the
-    fluid mask using k-nearest-neighbour inverse-distance weighting.
-    """
+    """K-nearest-neighbour inverse-distance weighting from sparse points into the mask."""
     flow = initialize_empty_flow(mask)
 
     points = np.asarray(constraints.get("points", []))
@@ -45,10 +42,7 @@ def propagate_sparse_to_dense(constraints, mask):
 
 
 def compute_distance_weights(points, query_point):
-    """
-    Compute normalised inverse-distance weights from a query pixel to every
-    sparse anchor point.
-    """
+    """Normalised inverse-distance weights from a query pixel to every anchor point."""
     points = np.asarray(points, dtype=np.float32)
     query = np.asarray(query_point, dtype=np.float32)
     if points.ndim != 2 or points.shape[1] != 2 or len(points) == 0:
@@ -63,9 +57,7 @@ def compute_distance_weights(points, query_point):
 
 
 def initialize_empty_flow(mask):
-    """
-    Allocate a zero dense motion field with the same H x W as ``mask``.
-    """
+    """Allocate a zero dense motion field with the same H×W as `mask`."""
     array = np.asarray(mask)
     if array.ndim == 3:
         h, w = array.shape[:2]

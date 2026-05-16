@@ -2,19 +2,11 @@
 
 
 def build_scene_prompt(base_prompt: str, style_prompt: str | None = None) -> str:
-    """
-    Merge content description and optional style description into one scene-generation prompt.
-
-    Detailed TODO:
-    1. Keep semantic content such as river, sea, or waterfall.
-    2. Append style words like Monet, oil painting, or watercolor when provided.
-    3. Return one prompt string suitable for stylized generation.
-    """
+    """Stylized prompt: content + explicit style (else detected style words) + landscape tag."""
     components = parse_prompt_components(base_prompt)
 
     prompt_parts = [components["content"]]
 
-    # A provided style prompt should take priority over automatically detected style words.
     if style_prompt:
         prompt_parts.append(_clean_text(style_prompt))
     elif components["style"]:
@@ -26,17 +18,9 @@ def build_scene_prompt(base_prompt: str, style_prompt: str | None = None) -> str
 
 
 def build_reference_prompt(base_prompt: str) -> str:
-    """
-    Create a more realistic prompt variant for generating the reference image.
-
-    Detailed TODO:
-    1. Remove or weaken stylization words.
-    2. Add realistic descriptors if needed.
-    3. Return a prompt aimed at motion-friendly realistic output.
-    """
+    """Realistic-photo prompt: strip style words, add photo descriptors."""
     components = parse_prompt_components(base_prompt)
 
-    # The reference should describe the same scene, but without strong art-style wording.
     prompt_parts = [
         components["content"],
         "realistic landscape photograph",
@@ -48,19 +32,11 @@ def build_reference_prompt(base_prompt: str) -> str:
 
 
 def parse_prompt_components(text_prompt: str) -> dict:
-    """
-    Split a prompt into semantic content and style-related components.
-
-    Detailed TODO:
-    1. Identify scene object/content words.
-    2. Identify style-related words.
-    3. Return a dict that can be reused by other prompt builders.
-    """
+    """Split prompt into {content, style, original} via a small style-term dictionary."""
     original = _clean_text(text_prompt)
     content = original
     detected_styles: list[str] = []
 
-    # This lightweight list is enough for a course-project prompt helper.
     style_terms = [
         "watercolor",
         "oil painting",
@@ -87,7 +63,7 @@ def parse_prompt_components(text_prompt: str) -> dict:
 
     content = _clean_prompt_separators(content)
 
-    # If the prompt was only style words, keep the original so the result is never empty.
+    # If the prompt was only style words, keep the original so we never return empty.
     if not content:
         content = original
 
@@ -99,12 +75,10 @@ def parse_prompt_components(text_prompt: str) -> dict:
 
 
 def _clean_text(text: str) -> str:
-    """Normalize whitespace in a prompt string."""
     return " ".join(str(text).strip().split())
 
 
 def _join_prompt_parts(parts: list[str]) -> str:
-    """Join prompt fragments while skipping empty values."""
     cleaned_parts = []
     for part in parts:
         cleaned = _clean_text(part)
@@ -115,7 +89,6 @@ def _join_prompt_parts(parts: list[str]) -> str:
 
 
 def _remove_phrase_case_insensitive(text: str, phrase: str) -> str:
-    """Remove one style phrase from text without needing regular expressions."""
     words = text.split()
     phrase_words = phrase.split()
     result: list[str] = []
@@ -133,7 +106,6 @@ def _remove_phrase_case_insensitive(text: str, phrase: str) -> str:
 
 
 def _clean_prompt_separators(text: str) -> str:
-    """Clean extra commas and spaces left after removing style terms."""
     cleaned = _clean_text(text)
 
     while ", ," in cleaned:

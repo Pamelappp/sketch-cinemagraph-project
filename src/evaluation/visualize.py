@@ -1,9 +1,4 @@
-"""Visualization helpers for debugging intermediate results in the pipeline.
-
-NOTE: Member-B-side stub written so demo runs can produce qualitative
-debug images. Member C is expected to extend these for the final report
-(side-by-side comparison panels, paper-style figure layouts, etc.).
-"""
+"""Visualization helpers for intermediate pipeline results."""
 
 from __future__ import annotations
 
@@ -12,7 +7,7 @@ import numpy as np
 
 
 def visualize_mask(mask: np.ndarray) -> np.ndarray:
-    """Render a binary mask as a 3-channel uint8 image for inspection."""
+    """Binary mask → HxWx3 uint8."""
     array = np.asarray(mask)
     if array.ndim == 3:
         array = array[..., 0]
@@ -21,11 +16,7 @@ def visualize_mask(mask: np.ndarray) -> np.ndarray:
 
 
 def visualize_motion_field(flow: np.ndarray) -> np.ndarray:
-    """
-    Convert a dense motion field into the standard HSV color visualization.
-
-    Hue encodes flow direction (angle), value encodes magnitude.
-    """
+    """HSV flow visualization: hue=angle, value=magnitude."""
     flow_array = np.asarray(flow, dtype=np.float32)
     if flow_array.ndim != 3 or flow_array.shape[2] != 2:
         raise ValueError(f"Expected H x W x 2 flow array, got shape {flow_array.shape}")
@@ -51,12 +42,7 @@ def visualize_pipeline_summary(
     motion_out: dict,
     target_size: int = 256,
 ) -> np.ndarray:
-    """
-    Build a 1-row summary panel: stylized image | final fluid mask | motion field.
-
-    Each tile is resized to ``target_size`` x ``target_size`` and the panels
-    are concatenated horizontally with a thin white separator.
-    """
+    """Side-by-side panel: stylized | final fluid mask | motion field (each `target_size`²)."""
     stylized = _resize(scene_out["stylized_image"], target_size)
     mask_vis = _resize(visualize_mask(mask_out["final_fluid_mask"]), target_size)
     flow_vis = _resize(visualize_motion_field(motion_out["dense_motion_field"]), target_size)

@@ -6,16 +6,7 @@ import numpy as np
 
 
 def build_sparse_constraints(strokes, mask):
-    """
-    Combine the per-stroke point/vector pairs into a single dictionary of
-    sparse motion constraints, restricted to pixels inside the fluid mask.
-
-    The returned dictionary is shaped for downstream propagation:
-        {
-            "points":  np.ndarray (M, 2) int32  -- (y, x) image coordinates
-            "vectors": np.ndarray (M, 2) float32 -- (dx, dy) flow vectors
-        }
-    """
+    """Combine strokes into {'points': (M,2) int32 (y,x), 'vectors': (M,2) float32 (dx,dy)}."""
     if not strokes:
         return _empty_constraints()
 
@@ -45,15 +36,7 @@ def build_sparse_constraints(strokes, mask):
 
 
 def stroke_to_vectors(stroke):
-    """
-    Convert a single ordered stroke polyline into per-point motion vectors.
-
-    Centred finite differences are used along the interior of the stroke,
-    falling back to forward/backward differences at the endpoints. The input
-    is shape ``(N, 2)`` ``(y, x)``; the returned vectors are stored as
-    ``(dx, dy)`` to align with the dense flow channel order used by
-    ``cv2.remap``.
-    """
+    """Convert an (N,2) (y,x) polyline into per-point (dx,dy) tangent vectors."""
     stroke = np.asarray(stroke, dtype=np.float32)
     if stroke.ndim != 2 or stroke.shape[0] < 2 or stroke.shape[1] != 2:
         return np.zeros((0, 2), dtype=np.int32), np.zeros((0, 2), dtype=np.float32)
@@ -73,9 +56,6 @@ def stroke_to_vectors(stroke):
 
 
 def filter_constraints_by_mask(points, vectors, mask):
-    """
-    Drop constraints whose anchor points fall outside the fluid mask.
-    """
     if len(points) == 0:
         return np.zeros((0, 2), dtype=np.int32), np.zeros((0, 2), dtype=np.float32)
 

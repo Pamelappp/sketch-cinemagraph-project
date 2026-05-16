@@ -58,17 +58,7 @@ class _Up(nn.Module):
 
 
 class MotionUNet(nn.Module):
-    """
-    Lightweight U-Net that predicts a dense motion field from three
-    conditioning inputs stacked into a single tensor.
-
-    Input layout (B, 7, H, W):
-        - channels 0..2 : stylized landscape image (RGB, normalised to [0, 1])
-        - channels 3..5 : motion sketch (RGB, normalised to [0, 1])
-        - channel  6    : fluid mask (binary {0, 1})
-
-    Output (B, 2, H, W): flow with channels (dx, dy) in pixel units.
-    """
+    """Lightweight U-Net: (B,7,H,W) [img||sketch||mask] → (B,2,H,W) (dx,dy) flow."""
 
     def __init__(self, in_channels: int = 7, base_channels: int = 64) -> None:
         super().__init__()
@@ -113,11 +103,7 @@ def count_parameters(model: nn.Module) -> int:
 
 
 def resolve_device(prefer: str | None = None) -> torch.device:
-    """
-    Pick the best available torch device.
-
-    Order of preference: explicit ``prefer`` argument > CUDA > Apple MPS > CPU.
-    """
+    """Pick the best torch device: explicit prefer > CUDA > MPS > CPU."""
     if prefer is not None:
         return torch.device(prefer)
     if torch.cuda.is_available():

@@ -11,15 +11,7 @@ _FINAL_MIN_AREA = 100
 
 
 def combine_masks(semantic_mask, refined_mask):
-    """
-    Fuse the semantic mask (user intent) with the refined mask (image boundaries).
-
-    The fusion rule mirrors the baseline paper: take the intersection so the
-    final mask respects both user-specified structural constraints and the
-    accurate boundaries from the image-based segmentation. When the
-    intersection is degenerate (refined backend missed the fluid region) the
-    semantic mask alone is used so the pipeline still produces motion.
-    """
+    """Intersection of semantic and refined masks; falls back to semantic if degenerate."""
     semantic = _ensure_2d_uint8(semantic_mask)
     refined = _ensure_2d_uint8(refined_mask)
 
@@ -48,9 +40,7 @@ def combine_masks(semantic_mask, refined_mask):
 
 
 def smooth_mask_edges(mask):
-    """
-    Smooth jagged mask boundaries to reduce artifacts in later warping.
-    """
+    """Close + Gaussian + re-threshold to soften jagged boundaries."""
     binary = _ensure_2d_uint8(mask)
 
     close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
@@ -64,9 +54,7 @@ def smooth_mask_edges(mask):
 
 
 def remove_small_regions(mask, min_area: int = 0):
-    """
-    Drop tiny disconnected mask regions whose area is below ``min_area``.
-    """
+    """Drop disconnected components smaller than min_area."""
     binary = _ensure_2d_uint8(mask)
     if min_area <= 0:
         return binary

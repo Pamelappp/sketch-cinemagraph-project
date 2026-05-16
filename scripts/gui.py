@@ -1,25 +1,8 @@
-"""Gradio GUI that runs the full Sketch2Cinemagraph pipeline interactively.
+"""Gradio GUI for the Sketch2Cinemagraph pipeline.
 
-Launches a browser-based interface where you can:
-
-1. Type a text prompt.
-2. Draw (or upload) a structural sketch and a motion sketch.
-3. Pick the scene-generation backend (placeholder for offline / instant
-   smoke test, or Stable Diffusion + ControlNet for the real paper-style
-   landscape image).
-4. Pick the motion-field backend (heuristic vs learned U-Net).
-5. Click "Generate cinemagraph" — the GUI runs the full pipeline and
-   shows every intermediate stage plus the final looping cinemagraph.
-
-Usage::
-
+Usage:
     python scripts/gui.py
     python scripts/gui.py --share          # public Gradio link
-
-First run with ``Scene backend = diffusion`` downloads ~5 GB of models
-(SD 1.5 + ControlNet scribble) into ~/.cache/huggingface, which can
-take 5–15 minutes depending on connection. Subsequent generations reuse
-the cached weights.
 """
 
 from __future__ import annotations
@@ -48,17 +31,12 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-# ---------------------------------------------------------------------------
-# Sketch helpers
-# ---------------------------------------------------------------------------
-
-
 def _editor_to_numpy(value: Any) -> np.ndarray | None:
     """Normalise a Gradio ImageEditor / Image value into a HxWx3 uint8 array."""
     if value is None:
         return None
     if isinstance(value, dict):
-        # gr.ImageEditor returns {"background": ..., "layers": [...], "composite": ...}
+        # gr.ImageEditor returns {"background", "layers", "composite"}.
         composite = value.get("composite")
         if composite is not None:
             value = composite
@@ -80,8 +58,7 @@ def _editor_to_numpy(value: Any) -> np.ndarray | None:
     if array.ndim == 2:
         array = cv2.cvtColor(array, cv2.COLOR_GRAY2RGB)
     if array.shape[2] == 4:
-        # ImageEditor uses RGBA with transparent canvas; drop alpha by compositing
-        # over white so subsequent steps see white background + black strokes.
+        # Composite RGBA onto white so downstream sees white BG + black strokes.
         rgb = array[..., :3].astype(np.float32)
         alpha = array[..., 3:4].astype(np.float32) / 255.0
         white = np.full_like(rgb, 255.0)
@@ -91,28 +68,17 @@ def _editor_to_numpy(value: Any) -> np.ndarray | None:
 
 
 def _ensure_white_background(sketch: np.ndarray) -> np.ndarray:
-    """If user drew on a transparent canvas that came through as black,
-    invert to keep white-background-black-strokes convention."""
+    """Invert if the canvas came through dark — pipeline expects white BG."""
     if sketch is None:
         return sketch
     gray = cv2.cvtColor(sketch, cv2.COLOR_RGB2GRAY)
-    # If average brightness is low, the user probably drew on a dark canvas;
-    # invert so it matches our pipeline's expectation.
     if gray.mean() < 80:
         return 255 - sketch
     return sketch
 
 
 def apply_motion_gradient(motion_sketch: np.ndarray) -> np.ndarray:
-    """
-    Convert a plain black-on-white motion sketch into the white-to-black
-    gradient convention used by the pipeline.
-
-    For each connected stroke component the pixel that lies on the leftmost
-    column gets shaded white (start), the rightmost gets shaded black (end),
-    and intermediate pixels are linearly interpolated. This is a deterministic
-    default — for full directional control draw with ``draw_motion_sketch.py``.
-    """
+    """Add a leftmost-white → rightmost-black gradient to each connected stroke."""
     if motion_sketch is None:
         return None
     rgb = motion_sketch
@@ -131,7 +97,7 @@ def apply_motion_gradient(motion_sketch: np.ndarray) -> np.ndarray:
         ys, xs = np.where(component)
         x_min, x_max = xs.min(), xs.max()
         if x_max == x_min:
-            # Vertical or single-column stroke: gradient top→bottom instead.
+            # Vertical / single-column stroke: gradient top→bottom instead.
             y_min, y_max = ys.min(), ys.max()
             if y_max == y_min:
                 continue
@@ -144,11 +110,6 @@ def apply_motion_gradient(motion_sketch: np.ndarray) -> np.ndarray:
         out[ys, xs, 2] = greys
 
     return out
-
-
-# ---------------------------------------------------------------------------
-# Pipeline runner
-# ---------------------------------------------------------------------------
 
 
 def stub_grounded_sam_if_needed(skip_sam: bool) -> None:
@@ -187,10 +148,8 @@ def run_pipeline(
     motion_np = _ensure_white_background(_editor_to_numpy(motion_input))
     photo_np = _editor_to_numpy(photo_input) if photo_input is not None else None
 
-    # Image-based cinemagraph mode (paper §5.6): user uploads a photo,
-    # we skip scene generation and use the photo directly. Structural
-    # sketch is replaced by a blank canvas so the semantic-mask path
-    # falls back to dilated motion strokes.
+    # Paper §5.6 photo mode: uploaded photo skips scene gen; blank structural
+    # canvas forces the semantic mask to fall back to dilated motion strokes.
     photo_mode = photo_np is not None
 
     if motion_np is None:
@@ -200,11 +159,10 @@ def run_pipeline(
         return (None, None, None, None, None, None,
                 "❌ Need either a structural sketch OR an uploaded photo.")
     if photo_mode:
-        # Auto-fill a blank structural sketch.
         structural_np = np.full(
             (motion_np.shape[0], motion_np.shape[1], 3), 255, dtype=np.uint8
         )
-        # Force grounded-sam ON so we still get a clean fluid mask from the photo.
+        # Force Grounded-SAM ON so the photo still gets a clean fluid mask.
         if skip_grounded_sam:
             log.append("Photo mode: enabling Grounded-SAM for fluid-region detection.")
             skip_grounded_sam = False
@@ -213,7 +171,6 @@ def run_pipeline(
         motion_np = apply_motion_gradient(motion_np)
         log.append("Auto-applied white→black gradient to motion strokes.")
 
-    # Resize sketches to match the pipeline image size.
     structural_np = cv2.resize(structural_np, (image_size, image_size),
                                interpolation=cv2.INTER_AREA)
     motion_np = cv2.resize(motion_np, (image_size, image_size),
@@ -304,11 +261,6 @@ def run_pipeline(
         log.append(f"❌ {error}")
         log.append(tb)
         return (None, None, None, None, None, None, "\n".join(log))
-
-
-# ---------------------------------------------------------------------------
-# Gradio interface
-# ---------------------------------------------------------------------------
 
 
 def build_app():

@@ -1,17 +1,4 @@
-"""Evaluation metrics for motion quality and cinemagraph output quality.
-
-Lightweight CPU/numpy implementations of three diagnostic metrics:
-
-- ``compute_motion_smoothness``  – local gradient energy of the motion
-  field within the fluid mask. Lower = smoother flow.
-- ``compute_loop_consistency``   – MSE between the first and last frame.
-  Lower = the loop wraps cleanly.
-- ``compute_mask_leakage``       – temporal variance of pixels OUTSIDE
-  the fluid mask. Lower = the static background actually stays static.
-
-Use these for the Final Report's quantitative table; pair them with the
-qualitative summary panels saved by ``src.evaluation.visualize``.
-"""
+"""Evaluation metrics for motion quality and cinemagraph output quality."""
 
 from __future__ import annotations
 
@@ -21,10 +8,7 @@ import numpy as np
 
 
 def compute_motion_smoothness(flow: np.ndarray, mask: np.ndarray) -> float:
-    """
-    Mean L2 magnitude of the spatial gradient of the motion field, evaluated
-    only on pixels inside the fluid mask. Smaller = smoother flow.
-    """
+    """Mean ‖∇flow‖ inside the fluid mask (lower = smoother)."""
     flow = np.asarray(flow, dtype=np.float32)
     if flow.ndim != 3 or flow.shape[2] != 2:
         raise ValueError(f"Expected H x W x 2 flow, got shape {flow.shape}")
@@ -48,10 +32,7 @@ def compute_motion_smoothness(flow: np.ndarray, mask: np.ndarray) -> float:
 
 
 def compute_loop_consistency(frames: List[np.ndarray]) -> float:
-    """
-    Mean-squared error between the first and last frames, in pixel intensity
-    units (0 – 255). Lower = the cinemagraph loops without a visible jump.
-    """
+    """MSE between the first and last frame (0 = perfect loop)."""
     if not frames or len(frames) < 2:
         return 0.0
     first = np.asarray(frames[0], dtype=np.float32)
@@ -62,12 +43,7 @@ def compute_loop_consistency(frames: List[np.ndarray]) -> float:
 
 
 def compute_mask_leakage(frames: List[np.ndarray], mask: np.ndarray) -> float:
-    """
-    Mean per-pixel temporal standard deviation outside the fluid mask.
-
-    A perfectly static background gives 0. Any non-zero value indicates
-    the warping bled motion into pixels that were supposed to stay frozen.
-    """
+    """Mean temporal std of background pixels (0 = static background)."""
     if not frames:
         return 0.0
     stack = np.stack([np.asarray(f, dtype=np.float32) for f in frames], axis=0)
@@ -78,9 +54,7 @@ def compute_mask_leakage(frames: List[np.ndarray], mask: np.ndarray) -> float:
     if not background.any():
         return 0.0
 
-    # Per-pixel temporal std over time, averaged over color channels and
-    # over the background pixels.
-    std_t = stack.std(axis=0)             # H x W x C
+    std_t = stack.std(axis=0)
     if std_t.ndim == 3:
-        std_t = std_t.mean(axis=-1)        # H x W
+        std_t = std_t.mean(axis=-1)
     return float(std_t[background].mean())

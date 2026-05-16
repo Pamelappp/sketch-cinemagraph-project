@@ -1,9 +1,4 @@
-"""Export synthesized frames into GIF or MP4 cinemagraph outputs.
-
-NOTE: Member-B-side stub written so the end-to-end pipeline can run.
-Member C is expected to replace this with a more polished exporter
-(e.g. ffmpeg pipe with H.264, looping metadata, format auto-detection).
-"""
+"""Export synthesized frames into GIF or MP4 cinemagraph outputs."""
 
 from __future__ import annotations
 
@@ -16,11 +11,7 @@ from PIL import Image
 
 
 def export_cinemagraph(frames: List[np.ndarray], output_path: str, fps: int = 20) -> str:
-    """
-    Save the looping frame sequence as a cinemagraph file on disk.
-
-    Dispatches to ``export_gif`` or ``export_mp4`` based on file extension.
-    """
+    """Dispatch to export_gif/export_mp4 based on the file extension."""
     suffix = Path(output_path).suffix.lower()
     if suffix == ".gif":
         return export_gif(frames, output_path, fps=fps)
@@ -30,7 +21,7 @@ def export_cinemagraph(frames: List[np.ndarray], output_path: str, fps: int = 20
 
 
 def export_gif(frames: List[np.ndarray], output_path: str, fps: int = 20) -> str:
-    """Export the frame list as an animated GIF with seamless looping."""
+    """Save frames as a looping animated GIF."""
     if not frames:
         raise ValueError("Cannot export an empty frame list.")
 
@@ -45,15 +36,15 @@ def export_gif(frames: List[np.ndarray], output_path: str, fps: int = 20) -> str
         save_all=True,
         append_images=pil_frames[1:],
         duration=duration_ms,
-        loop=0,           # 0 = infinite loop
+        loop=0,
         optimize=False,
-        disposal=0,       # 0 = no disposal → avoids inter-frame flicker
+        disposal=0,   # disposal=0 (no disposal) prevents inter-frame flicker.
     )
     return str(path)
 
 
 def export_mp4(frames: List[np.ndarray], output_path: str, fps: int = 20) -> str:
-    """Export the frame list as an MP4 using OpenCV's mp4v encoder."""
+    """Save frames as an MP4 (mp4v codec)."""
     if not frames:
         raise ValueError("Cannot export an empty frame list.")
 
@@ -82,7 +73,6 @@ def export_mp4(frames: List[np.ndarray], output_path: str, fps: int = 20) -> str
 
 
 def _ensure_uint8_rgb(frame: np.ndarray) -> np.ndarray:
-    """Coerce a frame into an HxWx3 uint8 RGB array."""
     array = np.asarray(frame)
     if array.ndim == 2:
         array = np.stack([array] * 3, axis=-1)
