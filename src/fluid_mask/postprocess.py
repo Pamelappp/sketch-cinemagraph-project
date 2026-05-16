@@ -40,10 +40,15 @@ def combine_masks(semantic_mask, refined_mask):
 
 
 def smooth_mask_edges(mask):
-    """Close + Gaussian + re-threshold to soften jagged boundaries."""
+    """Close gaps + open specks + Gaussian smooth + re-threshold.
+
+    Close kernel is larger than the typical decorative-stroke width so
+    wave-line gaps inside the water region get bridged. Open kernel stays
+    small so we only remove pixel-level speckle, not actual holes.
+    """
     binary = _ensure_2d_uint8(mask)
 
-    close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
     open_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
     binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, close_kernel)
     binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, open_kernel)

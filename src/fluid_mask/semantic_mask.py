@@ -41,6 +41,14 @@ def build_semantic_mask(structural_sketch, motion_sketch, reference_image=None):
                 return expanded
         return _stroke_fallback_mask(motion_array)
 
+    # Decorative ink inside the selected fluid area (wave lines / ripples drawn
+    # within the water) sits at label-0 and otherwise leaves thin black holes
+    # in the mask. Close just enough to bridge those gaps — kernel kept small
+    # so genuine cut-outs like a boat silhouette stay as holes. Sky isn't
+    # touched because sky was never selected.
+    close_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, close_k)
+
     return mask
 
 
