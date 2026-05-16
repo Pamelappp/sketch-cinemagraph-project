@@ -61,6 +61,9 @@ class SceneGenerator:
             "num_inference_steps":           sub_cfg.get("num_inference_steps",           b.num_inference_steps),
             "guidance_scale":                sub_cfg.get("guidance_scale",                b.guidance_scale),
             "controlnet_conditioning_scale": sub_cfg.get("controlnet_conditioning_scale", b.controlnet_conditioning_scale),
+            "control_guidance_start":        sub_cfg.get("control_guidance_start",        b.control_guidance_start),
+            "control_guidance_end":          sub_cfg.get("control_guidance_end",          b.control_guidance_end),
+            "refine":                        sub_cfg.get("refine",                        b.use_refine),
             "style_prompt":                  sub_cfg.get("style_prompt",                  self.style_prompt),
             "extra_positive_prompt":         sub_cfg.get("extra_positive_prompt",         ""),
             "extra_negative_prompt":         sub_cfg.get("extra_negative_prompt",         ""),
@@ -91,6 +94,9 @@ class SceneGenerator:
             num_inference_steps=p["num_inference_steps"],
             guidance_scale=p["guidance_scale"],
             controlnet_conditioning_scale=p["controlnet_conditioning_scale"],
+            control_guidance_start=p["control_guidance_start"],
+            control_guidance_end=p["control_guidance_end"],
+            refine=p["refine"],
         )
         self._save_debug_image("debug_stylized_image.png", result)
         return result
@@ -125,6 +131,9 @@ class SceneGenerator:
             num_inference_steps=p["num_inference_steps"],
             guidance_scale=p["guidance_scale"],
             controlnet_conditioning_scale=p["controlnet_conditioning_scale"],
+            control_guidance_start=p["control_guidance_start"],
+            control_guidance_end=p["control_guidance_end"],
+            refine=p["refine"],
         )
         self._save_debug_image("debug_reference_image.png", result)
         return result

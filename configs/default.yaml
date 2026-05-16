@@ -14,33 +14,45 @@ scene:
   # Shared layout prior — injected into BOTH stylized and reference prompts.
   scene_prior: "calm lake in the foreground, visible small wooden boat on the left side, small village houses aligned along the shoreline in the middle, moonlit night sky, small distant moon, water reflections on the lake, same object positions as the input sketch"
 
-  # ControlNet shared settings
-  model_id: runwayml/stable-diffusion-v1-5
+  # Models. dreamshaper-8 is an SD-1.5 fine-tune that produces noticeably
+  # better painterly landscapes than vanilla SD 1.5. sd-vae-ft-mse replaces
+  # the baked-in VAE for sharper colour.
+  model_id: Lykon/dreamshaper-8
   controlnet_id: lllyasviel/control_v11p_sd15_lineart
+  vae_id: stabilityai/sd-vae-ft-mse
+
   control_type: lineart
   sketch_binary_threshold: 220
+
+  # Quality knobs (apply to both stylized and reference; per-mode overrides below).
+  scheduler: dpmpp_2m_karras   # consensus best for SD 1.5
+  use_freeu: true              # community-tuned Free-U; free quality boost
+  use_refine: true             # second img2img pass refines texture
+  refine_strength: 0.32        # 0.2-0.4 typical; higher = more deviation from base
+  refine_steps: 18
   control_guidance_start: 0.0
-  control_guidance_end: 0.85
-  enable_cpu_offload: true
+  control_guidance_end: 0.75   # release control mid-denoise so SD can paint detail
+  clip_skip: 1
+  enable_cpu_offload: false
   negative_prompt: null
 
-  # Stylized image: painterly Monet-style night landscape
+  # Stylized image: painterly Monet-style night landscape.
   stylized:
-    style_prompt: "stylized painterly night landscape, soft brush strokes, coherent illustration, atmospheric moonlight, Monet-style"
-    extra_positive_prompt: "convert line drawing into natural painted forms, no sketch line texture"
-    extra_negative_prompt: "photorealistic, raw photo, DSLR, visible sketch lines, copied sketch strokes, glowing outlines, grey outline strokes, line drawing texture, text, letters, watermark, giant moon, oversized moon, bridge, extra bridge, extra trees, forest blocking village, missing boat, black platform, hard rectangular water, hard shoreline"
-    num_inference_steps: 40
-    guidance_scale: 6.8
-    controlnet_conditioning_scale: 0.85
+    style_prompt: "stylized painterly night landscape, soft visible brush strokes, coherent illustration, atmospheric moonlight, Monet-inspired oil painting"
+    extra_positive_prompt: "convert line drawing into natural painted forms, smooth gradients, no visible sketch lines, masterpiece, highly detailed, 8k"
+    extra_negative_prompt: "photorealistic, raw photo, DSLR, low quality, blurry, deformed, visible sketch lines, copied sketch strokes, glowing outlines, grey outline strokes, line drawing texture, text, letters, watermark, signature, bridge, extra bridge, extra trees, forest blocking village, missing boat, black platform, hard rectangular water, hard shoreline, oversaturated"
+    num_inference_steps: 30
+    guidance_scale: 6.5
+    controlnet_conditioning_scale: 0.9
 
-  # Realistic reference: photo-real version used to guide motion estimation
+  # Realistic reference: photo-real version used to guide motion estimation.
   reference:
-    style_prompt: "realistic night landscape photograph, photorealistic natural materials, natural water surface, realistic village houses, realistic moonlight, DSLR photograph, high detail"
-    extra_positive_prompt: "natural water reflections, visible boat on the left, houses remain on the shoreline, smooth natural shoreline"
-    extra_negative_prompt: "painting, illustration, cartoon, anime, stylized, brush strokes, visible sketch lines, copied sketch strokes, glowing outlines, text, letters, watermark, bridge, extra bridge, extra trees, forest blocking village, missing boat, boat removed, houses shifted to the right, floating island, black platform, hard shoreline, hard rectangular water, desert, sand dunes, dry land, giant moon, oversized moon"
-    num_inference_steps: 40
-    guidance_scale: 7.2
-    controlnet_conditioning_scale: 1.10
+    style_prompt: "realistic night landscape photograph, photorealistic natural materials, natural water surface, realistic village houses, soft moonlight, sharp focus, DSLR photograph, high detail, 8k"
+    extra_positive_prompt: "natural water reflections, gentle ripples on the lake, visible boat on the left, houses remain on the shoreline, smooth natural shoreline, cinematic lighting"
+    extra_negative_prompt: "painting, illustration, cartoon, anime, stylized, brush strokes, low quality, blurry, deformed, visible sketch lines, copied sketch strokes, glowing outlines, text, letters, watermark, signature, bridge, extra bridge, extra trees, forest blocking village, missing boat, boat removed, houses shifted to the right, floating island, black platform, hard shoreline, hard rectangular water, desert, sand dunes, dry land, oversaturated"
+    num_inference_steps: 30
+    guidance_scale: 7.0
+    controlnet_conditioning_scale: 1.0
 
 motion:
   # 'heuristic' = sparse-to-dense IDW (default); 'learned' = trained MotionUNet.
