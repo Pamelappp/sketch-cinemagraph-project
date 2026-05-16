@@ -1,11 +1,11 @@
 input:
-  structural_sketch_path: data/inputs/structural_sketch/example.png
-  motion_sketch_path: data/inputs/motion_sketch/example.png
-  prompt_path: data/inputs/prompts/example.txt
+  structural_sketch_path: data/inputs/structural_sketch/village.png
+  motion_sketch_path: data/inputs/motion_sketch/village.png
+  prompt_path: data/inputs/prompts/village.txt
 
 scene:
   backend: placeholder
-  image_size: [512, 512]
+  image_size: null      # null = keep sketch size; set to [W, H] to force-resize
   seed: 42
   save_reference: true
 

@@ -21,7 +21,9 @@ class SceneGenerator:
         """
         self.cfg = cfg
         self.backend = cfg.get("backend", "placeholder")
-        self.image_size = tuple(cfg.get("image_size", [512, 512]))
+        _img_size = cfg.get("image_size")
+        # None / falsy: skip resize and keep the input sketch's native resolution.
+        self.image_size = tuple(_img_size) if _img_size else None
         self.seed = int(cfg.get("seed", 42))
         self.save_reference = bool(cfg.get("save_reference", True))
 
@@ -151,8 +153,9 @@ class SceneGenerator:
         else:
             raise ValueError("Structural sketch must be a 2D or 3D image array.")
 
-        # PIL uses size as (width, height). Config image_size is stored the same way here.
-        pil_image = pil_image.resize(self.image_size, Image.Resampling.BILINEAR)
+        if self.image_size is not None:
+            # PIL size is (width, height); config image_size follows the same convention.
+            pil_image = pil_image.resize(self.image_size, Image.Resampling.BILINEAR)
 
         return np.asarray(pil_image)
 
