@@ -1,5 +1,3 @@
-# src/scene_generation/generator.py
-
 import json
 import pathlib
 
@@ -33,15 +31,12 @@ class SceneGenerator:
         self.scene_prior             = cfg.get("scene_prior", "")
         self.debug_dir               = cfg.get("debug_dir", None)
 
-        # Per-mode sub-configs (fallback to empty dict → _get_gen_params uses backend defaults)
         self._stylized_cfg  = cfg.get("stylized", {})
         self._reference_cfg = cfg.get("reference", {})
 
         self.diffusion_backend = None
         if self.backend == "diffusion":
             self.diffusion_backend = DiffusionSceneBackend(cfg)
-
-    # ── Public entry point ────────────────────────────────────────────────────
 
     def generate(self, structural_sketch, text_prompt: str) -> SceneOutput:
         if self.backend == "diffusion":
@@ -60,10 +55,7 @@ class SceneGenerator:
 
         return SceneOutput(stylized_image=stylized, realistic_reference=reference)
 
-    # ── Sub-config helpers ────────────────────────────────────────────────────
-
     def _get_gen_params(self, sub_cfg: dict) -> dict:
-        """Merge sub-config with top-level backend defaults."""
         b = self.diffusion_backend
         return {
             "num_inference_steps":           sub_cfg.get("num_inference_steps",           b.num_inference_steps),
@@ -73,8 +65,6 @@ class SceneGenerator:
             "extra_positive_prompt":         sub_cfg.get("extra_positive_prompt",         ""),
             "extra_negative_prompt":         sub_cfg.get("extra_negative_prompt",         ""),
         }
-
-    # ── Diffusion generation ──────────────────────────────────────────────────
 
     def generate_stylized_diffusion(self, structural_sketch, text_prompt: str):
         p = self._get_gen_params(self._stylized_cfg)
@@ -139,15 +129,11 @@ class SceneGenerator:
         self._save_debug_image("debug_reference_image.png", result)
         return result
 
-    # ── Placeholder generation (no diffusion model) ───────────────────────────
-
     def generate_stylized_placeholder(self, structural_sketch, text_prompt: str):
         return self.preprocess_sketch(structural_sketch)
 
     def generate_reference_placeholder(self, structural_sketch, text_prompt: str):
         return self.preprocess_sketch(structural_sketch)
-
-    # ── Control image preparation ─────────────────────────────────────────────
 
     def preprocess_sketch(self, structural_sketch):
         array = np.asarray(structural_sketch)
@@ -170,30 +156,24 @@ class SceneGenerator:
         image = self.preprocess_sketch(structural_sketch)
         arr   = np.asarray(image)
 
-        # Grayscale
         if arr.ndim == 3:
             gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
         else:
             gray = arr.copy()
 
-        # Hard binary threshold: below threshold → black line, else → white background
         binary = np.where(gray < self.sketch_binary_threshold, 0, 255).astype(np.uint8)
 
         if self.control_type == "canny":
-            # Canny ControlNet expects white edges on black background
+            # Canny ControlNet expects white edges on black background.
             control_arr = cv2.Canny(binary, threshold1=50, threshold2=150)
         else:
-            # lineart / scribble: clean white background, black lines
             control_arr = binary
 
         self._save_debug_image_raw("debug_control_image.png", control_arr)
 
         return Image.fromarray(control_arr).convert("RGB")
 
-    # ── Alignment sanity check ────────────────────────────────────────────────
-
     def _check_alignment(self, control_pil, stylized, reference):
-        """Print edge-overlap metrics; warn when images are misaligned."""
         ctrl_gray = np.asarray(control_pil.convert("L")).astype(np.uint8)
         ctrl_edges = cv2.Canny(ctrl_gray, 50, 150).astype(np.float32) / 255.0
 
@@ -222,8 +202,6 @@ class SceneGenerator:
             if sty_ref_sim < 0.20:
                 print("[Warning] Stylized and reference images may be spatially "
                       "misaligned — motion transfer may fail.")
-
-    # ── Debug helpers ─────────────────────────────────────────────────────────
 
     def _debug_path(self, filename: str) -> pathlib.Path | None:
         if self.debug_dir is None:

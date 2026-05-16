@@ -12,9 +12,6 @@ import numpy as np
 from PIL import Image
 
 
-# Baseline-inspired fluid categories (waterfall, river, sea, sky, smoke).
-# Extended with additional fluid-like categories (fire, lava, steam) for
-# robustness beyond the baseline paper's scope.
 FLUID_KEYWORDS: Tuple[str, ...] = (
     "water",
     "river",
@@ -37,14 +34,10 @@ FLUID_KEYWORDS: Tuple[str, ...] = (
 
 _DEFAULT_QUERY = "water. sky. cloud. smoke."
 
-# Default Grounded-SAM checkpoints. Override via environment variables when
-# stronger models are available locally.
 _DINO_MODEL_ID = os.environ.get("GROUNDING_DINO_MODEL", "IDEA-Research/grounding-dino-tiny")
 _SAM_MODEL_ID = os.environ.get("SAM_MODEL", "facebook/sam-vit-base")
 
-# Lower thresholds improve recall on generated/stylized images where confidence
-# scores are typically lower than on natural photographs.
-# Override at runtime: DINO_BOX_THRESHOLD=0.25 python main.py
+# Lower than typical defaults: stylised images have lower DINO confidence than photos.
 _BOX_THRESHOLD = float(os.environ.get("DINO_BOX_THRESHOLD", "0.18"))
 _TEXT_THRESHOLD = float(os.environ.get("DINO_TEXT_THRESHOLD", "0.15"))
 
@@ -53,15 +46,7 @@ _BACKEND: Optional["_GroundedSAMBackend"] = None
 
 
 def refine_fluid_mask(image, text_prompt: str, debug_dir=None):
-    """
-    Refine fluid-region boundaries from the generated landscape image.
-
-    The implementation follows the baseline paper: an open-vocabulary
-    object detector (Grounding DINO) localises fluid categories from the
-    text prompt; the resulting bounding boxes condition the Segment
-    Anything Model, which produces precise instance masks. The masks are
-    unioned and morphologically cleaned to obtain the refined fluid mask.
-    """
+    """Run Grounding-DINO + SAM and return a cleaned fluid mask."""
     import pathlib as _pathlib
     raw_mask = run_segmentation_backend(image, text_prompt, debug_dir=debug_dir)
     cleaned = clean_refined_mask(raw_mask)
@@ -73,12 +58,7 @@ def refine_fluid_mask(image, text_prompt: str, debug_dir=None):
 
 
 def run_segmentation_backend(image, text_prompt: str, debug_dir=None):
-    """
-    Execute the Grounded-SAM backend (Grounding DINO + SAM) on the input
-    landscape image, conditioned on the textual fluid query derived from
-    the user prompt. Returns a binary uint8 mask of the union of all
-    detected fluid regions.
-    """
+    """Run Grounding-DINO + SAM, return a binary uint8 mask of all detected fluid regions."""
     import pathlib as _pathlib
     rgb = _to_uint8_rgb(image)
     height, width = rgb.shape[:2]
@@ -111,9 +91,7 @@ def run_segmentation_backend(image, text_prompt: str, debug_dir=None):
 
 
 def clean_refined_mask(mask):
-    """
-    Apply morphological filtering to remove speckle noise and tidy boundaries.
-    """
+    """Morphologically tidy a raw segmentation mask."""
     if mask.ndim == 3:
         mask = mask[:, :, 0]
     binary = (mask > 0).astype(np.uint8) * 255
@@ -136,14 +114,7 @@ def clean_refined_mask(mask):
 
 
 def _build_dino_query(text_prompt: str) -> str:
-    """
-    Build a Grounding DINO query string from the user prompt.
-
-    Grounding DINO expects lowercase noun phrases separated by full stops.
-    We extract the fluid-related terms from the prompt; if none are present
-    a generic fluid vocabulary is used so the detector still has plausible
-    targets to localise.
-    """
+    """Extract fluid keywords from the prompt, formatted as DINO query (`word.` joined)."""
     keywords: List[str] = []
     if text_prompt:
         tokens = re.findall(r"[a-zA-Z]+", text_prompt.lower())
@@ -178,10 +149,7 @@ class _GroundedSAMBackend:
         )
 
         self._torch = torch
-        # HuggingFace's Grounding-DINO post-processing uses float64 internally,
-        # which MPS does not support. CUDA is fine; on Apple Silicon we fall
-        # back to CPU (one-shot inference, ~10–20 s per call). Override via
-        # GROUNDED_SAM_DEVICE=mps if your transformers version is patched.
+        # MPS lacks float64 used by DINO post-processing; default to CPU on Apple Silicon.
         forced = os.environ.get("GROUNDED_SAM_DEVICE")
         if forced:
             self.device = forced
@@ -243,7 +211,7 @@ class _GroundedSAMBackend:
         return boxes, scores
 
     def segment_with_boxes(self, pil_image: Image.Image, boxes_xyxy: np.ndarray):
-        """Run SAM conditioned on Grounding DINO boxes; return (N, H, W) bool array."""
+        """Run SAM conditioned on DINO boxes; return (N, H, W) bool array."""
         torch = self._torch
         if boxes_xyxy is None or len(boxes_xyxy) == 0:
             return None
@@ -264,7 +232,7 @@ class _GroundedSAMBackend:
         if not masks:
             return None
 
-        per_box_masks = masks[0].numpy()  # shape (num_boxes, num_predictions, H, W)
+        per_box_masks = masks[0].numpy()
         if per_box_masks.ndim == 4:
             per_box_masks = per_box_masks[:, 0, :, :]
         return per_box_masks.astype(bool)

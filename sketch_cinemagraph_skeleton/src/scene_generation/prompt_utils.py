@@ -1,6 +1,5 @@
 """Helpers for prompt construction and negative-prompt management."""
 
-# ── Shared layout anchors injected into BOTH prompts ─────────────────────────
 _LAYOUT_PHRASES = [
     "same composition as the input sketch",
     "preserve object positions from the line drawing",
@@ -11,7 +10,6 @@ _LAYOUT_PHRASES = [
     "sky above, land in the middle, water in the foreground",
 ]
 
-# ── Base negative — quality / global artefacts ────────────────────────────────
 _BASE_NEGATIVE = (
     "low quality, blurry, distorted, repeated texture, mosaic pattern, "
     "extra objects, messy composition, "
@@ -19,7 +17,6 @@ _BASE_NEGATIVE = (
     "unrealistic perspective, inconsistent composition, wrong layout"
 )
 
-# ── Artefacts common to BOTH modes ───────────────────────────────────────────
 _COMMON_ARTEFACT_NEGATIVE = (
     "visible sketch lines, copied sketch strokes, glowing outlines, grey outline strokes, "
     "line drawing texture, text, letters, watermark, logo, signature, "
@@ -28,7 +25,6 @@ _COMMON_ARTEFACT_NEGATIVE = (
     "giant moon, oversized moon, missing boat"
 )
 
-# ── Mode-specific extras ──────────────────────────────────────────────────────
 _STYLIZED_EXTRA = "photorealistic, raw photo, DSLR photograph"
 
 _REFERENCE_EXTRA = (
@@ -49,7 +45,6 @@ def build_scene_prompt(base_prompt: str,
                        style_prompt: str | None = None,
                        scene_prior: str = "",
                        extra_positive_prompt: str = "") -> str:
-    """Build the stylized-image prompt with layout anchors and optional style."""
     components  = parse_prompt_components(base_prompt)
     prior_clean = _clean_text(scene_prior) if scene_prior else ""
 
@@ -76,7 +71,6 @@ def build_reference_prompt(base_prompt: str,
                             scene_prior: str = "",
                             style_prompt: str | None = None,
                             extra_positive_prompt: str = "") -> str:
-    """Build the realistic-reference prompt with layout anchors and photo descriptors."""
     components  = parse_prompt_components(base_prompt)
     prior_clean = _clean_text(scene_prior) if scene_prior else ""
 
@@ -106,12 +100,7 @@ def build_negative_prompt(base_prompt: str = "",
                            scene_prior: str = "",
                            extra_negative_prompt: str = "",
                            mode: str = "stylized") -> str:
-    """
-    Build a mode-specific negative prompt.
-
-    mode='stylized'  → blocks photorealistic terms; allows painterly artefacts
-    mode='reference' → blocks painterly terms; blocks layout-breaking artefacts
-    """
+    """Build the negative prompt; mode is 'stylized' or 'reference'."""
     combined = (base_prompt + " " + scene_prior).lower()
     parts    = [_BASE_NEGATIVE, _COMMON_ARTEFACT_NEGATIVE]
 
@@ -159,8 +148,6 @@ def parse_prompt_components(text_prompt: str) -> dict:
         "original": original,
     }
 
-
-# ── Internal helpers ──────────────────────────────────────────────────────────
 
 def _clean_text(text: str) -> str:
     return " ".join(str(text).strip().split())

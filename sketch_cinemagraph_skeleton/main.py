@@ -32,7 +32,6 @@ def main() -> None:
 
     output_cfg = cfg.get("output", {})
 
-    # 1. save scene images
     stylized_image_path = output_cfg.get("stylized_image_path")
     if stylized_image_path:
         save_image(scene_out["stylized_image"], stylized_image_path)
@@ -41,7 +40,6 @@ def main() -> None:
     if realistic_reference_path and scene_out["realistic_reference"] is not None:
         save_image(scene_out["realistic_reference"], realistic_reference_path)
 
-    # 2. save debug visualizations
     debug_dir = ensure_dir(output_cfg.get("debug_dir", "data/outputs/debug"))
 
     save_debug_mask(debug_dir / "final_mask.png", mask_out["final_fluid_mask"])
@@ -51,7 +49,6 @@ def main() -> None:
     cv2.imwrite(str(debug_dir / "dense_motion_field.png"), flow_vis)
     cv2.imwrite(str(debug_dir / "pipeline_summary.png"), summary_vis)
 
-    # 3. save metrics
     metrics_path = debug_dir / "metrics.json"
     with open(metrics_path, "w", encoding="utf-8") as f:
         json.dump(sanitize_for_json(metrics), f, indent=4)
@@ -59,7 +56,6 @@ def main() -> None:
     def _fmt(val, fmt=".4f"):
         return f"{val:{fmt}}" if val is not None else "N/A"
 
-    # 4. print summary
     print("=== Sketch Cinemagraph Pipeline Finished ===")
     print(f"Stylized image:      {stylized_image_path}")
     print(f"Reference image:     {realistic_reference_path}")

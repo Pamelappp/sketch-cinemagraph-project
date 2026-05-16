@@ -1,8 +1,6 @@
-# src/scene_generation/diffusion_backend.py
-
 import numpy as np
 
-_UNSET = object()   # sentinel — distinguishes "caller passed nothing" from "caller passed None"
+_UNSET = object()   # distinguishes "caller passed nothing" from "caller passed None"
 
 
 class DiffusionSceneBackend:
@@ -16,7 +14,6 @@ class DiffusionSceneBackend:
         self.control_guidance_start        = float(cfg.get("control_guidance_start", 0.0))
         self.control_guidance_end          = float(cfg.get("control_guidance_end", 0.85))
 
-        # cfg negative_prompt=null → use the one supplied per-call (built by prompt_utils)
         self._cfg_negative_prompt = cfg.get("negative_prompt", None)
 
         raw_seed    = cfg.get("seed", 42)
@@ -37,12 +34,9 @@ class DiffusionSceneBackend:
                  controlnet_conditioning_scale: float | None = None,
                  control_guidance_start: float | None = None,
                  control_guidance_end: float | None = None) -> np.ndarray:
-        """
-        Generate one image.
+        """Generate one image; per-call params override instance defaults when not None.
 
-        Per-call params override instance defaults when provided (not None).
-        seed: pass an explicit int to override self.seed; pass None for random;
-              omit / pass _UNSET to use self.seed (default).
+        seed: int overrides self.seed; None forces random; _UNSET reuses self.seed.
         """
         pipe  = self._get_pipeline()
         torch = self._torch
@@ -74,7 +68,7 @@ class DiffusionSceneBackend:
             width=width,
         )
 
-        # control_guidance_start/end require diffusers ≥ 0.19; fall back gracefully
+        # control_guidance_start/end require diffusers ≥ 0.19; fall back gracefully.
         try:
             kwargs["control_guidance_start"] = actual_cgs
             kwargs["control_guidance_end"]   = actual_cge
@@ -101,6 +95,10 @@ class DiffusionSceneBackend:
         if torch.cuda.is_available():
             device      = "cuda"
             torch_dtype = torch.float16
+        elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+            # Apple Silicon GPU. fp16 attention is unstable on MPS; keep fp32.
+            device      = "mps"
+            torch_dtype = torch.float32
         else:
             device      = "cpu"
             torch_dtype = torch.float32

@@ -6,26 +6,12 @@ import cv2
 import numpy as np
 
 
-# Warning threshold — intersection below this fraction triggers a diagnostic message.
-# Not used as a fallback trigger; the intersection is always the final mask.
 _MIN_INTERSECTION_FRACTION = 0.05
 _FINAL_MIN_AREA = 20
 
 
 def combine_masks(semantic_mask, refined_mask, debug_dir=None):
-    """
-    Fuse the semantic mask (user intent) with the refined mask (image boundaries).
-
-    Follows the baseline paper exactly: the final mask is the intersection of
-    the semantic mask (user-specified motion regions from sketches) and the
-    refined mask (Grounded-SAM fluid boundaries).  This simultaneously:
-      - Preserves user-specified structural constraints (semantic)
-      - Applies accurate fluid boundaries (refined)
-      - Excludes unintended fluid regions the model hallucinated
-
-    No silent fallback — if either mask is empty the intersection is empty and
-    a warning is printed so the problem can be diagnosed.
-    """
+    """Return the intersection of semantic and refined masks, cleaned. Warns if empty."""
     semantic = _ensure_2d_uint8(semantic_mask)
     refined = _ensure_2d_uint8(refined_mask)
 
@@ -67,12 +53,7 @@ def combine_masks(semantic_mask, refined_mask, debug_dir=None):
 
 
 def smooth_mask_edges(mask):
-    """
-    Smooth jagged mask boundaries to reduce artifacts in later warping.
-
-    Only MORPH_CLOSE is applied — MORPH_OPEN is intentionally omitted because
-    it erodes thin fluid regions such as rivers and waterfalls.
-    """
+    """Close-only morphology + Gaussian → re-threshold. No open, to keep rivers thin."""
     binary = _ensure_2d_uint8(mask)
 
     close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
@@ -84,9 +65,7 @@ def smooth_mask_edges(mask):
 
 
 def remove_small_regions(mask, min_area: int = 0):
-    """
-    Drop tiny disconnected mask regions whose area is below ``min_area``.
-    """
+    """Drop disconnected components smaller than min_area."""
     binary = _ensure_2d_uint8(mask)
     if min_area <= 0:
         return binary

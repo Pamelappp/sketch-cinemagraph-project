@@ -32,7 +32,6 @@ from src.evaluation.metrics import (
 
 
 def _resize_to_match(array, target_hw, is_mask=False):
-    """Resize any image/mask to match target (height, width)."""
     target_h, target_w = target_hw
     if array.shape[:2] == (target_h, target_w):
         return array
@@ -41,8 +40,6 @@ def _resize_to_match(array, target_hw, is_mask=False):
 
 
 class CinemagraphPipeline:
-    """Simplified end-to-end pipeline for the course project."""
-
     def __init__(self, cfg: dict) -> None:
         self.cfg = cfg
         scene_cfg = dict(cfg.get("scene", {}))
@@ -75,10 +72,6 @@ class CinemagraphPipeline:
         }
 
     def _fluid_mask_extraction(self, user_input: UserInput, scene_out: dict) -> dict:
-        """
-        Build semantic / refined / final mask, foreground protection masks,
-        and safe-moving mask — all aligned to the scene image size.
-        """
         h, w = scene_out["stylized_image"].shape[:2]
         output_cfg = self.cfg.get("output", {})
         motion_cfg = self.cfg.get("motion", {})
@@ -122,14 +115,12 @@ class CinemagraphPipeline:
         debug_dir.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(str(debug_dir / "debug_semantic.png"), semantic_mask)
 
-        # ── Read protection params ────────────────────────────────────────────
         border_margin  = int(motion_cfg.get("border_protection_margin",      30))
         erosion_px     = int(motion_cfg.get("mask_edge_erosion",              8))
         shoreline_band = int(motion_cfg.get("shoreline_protection_band",     12))
         dilation_px    = int(motion_cfg.get("foreground_protection_dilation", 20))
         feather_px     = int(motion_cfg.get("motion_boundary_feather",        20))
 
-        # ── Step A: Border protection mask ───────────────────────────────────
         border_protection = np.zeros((h, w), dtype=np.uint8)
         border_protection[:border_margin, :]       = 255
         border_protection[h - border_margin:, :]   = 255
@@ -137,19 +128,15 @@ class CinemagraphPipeline:
         border_protection[:, w - border_margin:]    = 255
         cv2.imwrite(str(debug_dir / "debug_border_protection_mask.png"), border_protection)
 
-        # ── Step B: Shoreline protection (top edge of water per column) ──────
         water_2d = (final_fluid_mask > 0)
-        has_water = water_2d.any(axis=0)                          # (W,)
-        first_water_row = np.where(
-            has_water, np.argmax(water_2d, axis=0), h
-        )                                                          # (W,)
-        row_idx = np.arange(h)[:, None]                           # (H, 1)
-        dist_from_shore = row_idx - first_water_row[None, :]      # (H, W)
+        has_water = water_2d.any(axis=0)
+        first_water_row = np.where(has_water, np.argmax(water_2d, axis=0), h)
+        row_idx = np.arange(h)[:, None]
+        dist_from_shore = row_idx - first_water_row[None, :]
         shoreline_protection = (
             (dist_from_shore >= 0) & (dist_from_shore < shoreline_band) & water_2d
         ).astype(np.uint8) * 255
 
-        # ── Step C: Boat hole detection ───────────────────────────────────────
         hole_mask = build_foreground_protection_mask(final_fluid_mask)
         dilated_mask, boat_composite_alpha, _ = dilate_and_feather_protection_mask(
             hole_mask, dilation_px=dilation_px, feather_px=feather_px
@@ -157,7 +144,6 @@ class CinemagraphPipeline:
         cv2.imwrite(str(debug_dir / "debug_foreground_protection_mask.png"), hole_mask)
         cv2.imwrite(str(debug_dir / "debug_dilated_foreground_protection_mask.png"), dilated_mask)
 
-        # ── Step D: safe_moving_mask (all protections + erosion) ─────────────
         safe_moving_mask_raw = (
             (final_fluid_mask > 0)
             & (dilated_mask == 0)
@@ -176,18 +162,13 @@ class CinemagraphPipeline:
         cv2.imwrite(str(debug_dir / "debug_safe_moving_mask.png"), safe_moving_mask_raw)
         cv2.imwrite(str(debug_dir / "debug_safe_moving_mask_after_border.png"), safe_moving_mask)
 
-        # ── Step E: Unified motion_alpha from distance transform ──────────────
         dist = cv2.distanceTransform(safe_moving_mask, cv2.DIST_L2, 5)
         motion_alpha = np.minimum(
             dist / max(float(feather_px), 1.0), 1.0
         ).astype(np.float32)
-        # Zero outside the original fluid mask
         fluid_bin = (final_fluid_mask > 0).astype(np.float32)
         motion_alpha = motion_alpha * fluid_bin
 
-        # ── Step F: Unified composite_alpha ──────────────────────────────────
-        # boat_composite_alpha: 1 at hole centre → 0 at dilation boundary
-        # (1 - motion_alpha):   1 at all protected zones → 0 in open water
         composite_alpha = np.maximum(boat_composite_alpha, 1.0 - motion_alpha)
 
         return {
@@ -207,10 +188,6 @@ class CinemagraphPipeline:
     def _motion_field_estimation(
         self, user_input: UserInput, scene_out: dict, mask_out: dict
     ) -> dict:
-        """
-        Estimate dense motion field, then apply foreground protection to zero
-        flow near static objects (boat, shore) with a smooth feather transition.
-        """
         motion_sketch = mask_out.get("resized_motion_sketch", user_input.motion_sketch)
         mask = mask_out["final_fluid_mask"]
         motion_cfg = self.cfg.get("motion", {})
@@ -218,7 +195,6 @@ class CinemagraphPipeline:
         strokes = parse_motion_sketch(motion_sketch)
         sparse_constraints = build_sparse_constraints(strokes=strokes, mask=mask)
 
-        # ── Try T2C learned predictor ─────────────────────────────────────────
         t2c_ckpt = self.cfg.get("motion_field", {}).get("t2c_checkpoint")
         t2c = T2CFlowPredictor(checkpoint_path=t2c_ckpt)
 
@@ -235,7 +211,6 @@ class CinemagraphPipeline:
                 print(f"[Warning] T2C predictor failed ({err}), falling back to RBF")
                 dense_motion_field = None
 
-        # ── Fallback: RBF sparse-to-dense ────────────────────────────────────
         if dense_motion_field is None:
             dense_motion_field = propagate_sparse_to_dense(
                 constraints=sparse_constraints,
@@ -248,7 +223,6 @@ class CinemagraphPipeline:
             flow=dense_motion_field, mask=mask, max_magnitude=max_magnitude
         )
 
-        # ── Foreground motion protection ──────────────────────────────────────
         motion_alpha = mask_out.get("motion_alpha")
         debug_dir = Path(self.cfg.get("output", {}).get("debug_dir", "data/outputs/debug"))
         debug_dir.mkdir(parents=True, exist_ok=True)
@@ -261,7 +235,6 @@ class CinemagraphPipeline:
             motion_alpha_vis = (motion_alpha * 255).clip(0, 255).astype(np.uint8)
             cv2.imwrite(str(debug_dir / "debug_motion_alpha.png"), motion_alpha_vis)
 
-        # Visualise flow magnitude after all protection
         flow_mag = np.linalg.norm(dense_motion_field, axis=-1)
         flow_max = float(flow_mag.max())
         flow_mag_vis = (
@@ -301,7 +274,6 @@ class CinemagraphPipeline:
         frames = blend_loop_boundary(frames)
         frames = enforce_loop(frames)
 
-        # ── Debug frames ──────────────────────────────────────────────────────
         n = len(frames)
         for idx, label in [(0, "000"), (n // 4, "015"), (n // 2, "030"), (3 * n // 4, "045")]:
             if 0 <= idx < n:
@@ -319,9 +291,8 @@ class CinemagraphPipeline:
             )
             cv2.imwrite(str(debug_dir / "debug_frame_difference_000_015.png"), diff_vis)
 
-        # ── Left-border crop debug ────────────────────────────────────────────
         border_margin = int(self.cfg.get("motion", {}).get("border_protection_margin", 30))
-        crop_w = border_margin * 3   # show protected zone + some animated water
+        crop_w = border_margin * 3
         mid_idx = n // 2
         if mid_idx < n:
             orig_bgr = cv2.cvtColor(
@@ -342,7 +313,6 @@ class CinemagraphPipeline:
                 np.clip(left_diff.astype(np.float32) * 5, 0, 255).astype(np.uint8),
             )
 
-        # ── Static region change check ────────────────────────────────────────
         if composite_alpha is not None:
             orig = scene_out["stylized_image"].astype(np.float32)
             static_region = composite_alpha > 0.5
@@ -382,14 +352,11 @@ class CinemagraphPipeline:
         mask = mask_out["final_fluid_mask"]
 
         return {
-            # ── original metrics ──────────────────────────────
             "motion_smoothness": compute_motion_smoothness(flow, mask),
             "loop_consistency": compute_loop_consistency(frames),
             "mask_leakage": compute_mask_leakage(frames, mask),
-            # ── standard metrics (no GT needed) ───────────────
             "psnr_loop": compute_psnr(frames[0], frames[-1]),
             "ssim_loop": compute_ms_ssim_loop(frames),
             "temporal_consistency_psnr": compute_temporal_consistency(frames),
-            # ── mask diagnostics ──────────────────────────────
             "mask_valid": compute_mask_valid(mask),
         }

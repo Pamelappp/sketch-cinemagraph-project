@@ -63,7 +63,6 @@ def main():
     args = parse_args()
     cfg = load_config(Path(args.config))
 
-    # Apply CLI overrides into the scene sub-config
     scene_cfg = cfg.setdefault("scene", {})
     if args.scale is not None:
         scene_cfg["controlnet_conditioning_scale"] = args.scale
@@ -75,7 +74,6 @@ def main():
                 "guidance_scale", "num_inference_steps", "seed", "style_prompt"):
         print(f"  {key:<34}: {scene_cfg.get(key)}")
 
-    # Load inputs
     input_cfg = cfg.get("input", {})
     if args.sketch:
         input_cfg = dict(input_cfg)
@@ -89,7 +87,6 @@ def main():
     print(f"  sketch shape : {np.asarray(sketch).shape}")
     print(f"  text_prompt  : {text_prompt!r}")
 
-    # Print the exact prompts that will go to the diffusion model
     style_prompt = scene_cfg.get("style_prompt") or None
     scene_prior  = scene_cfg.get("scene_prior", "")
     extra_neg    = scene_cfg.get("extra_negative_prompt", "")
@@ -101,12 +98,10 @@ def main():
     print(f"  reference : {reference_prompt!r}")
     print(f"  negative  : {negative_prompt!r}")
 
-    # Wire debug_dir so SceneGenerator writes debug files alongside output
     out_prefix = Path(args.out)
     out_prefix.parent.mkdir(parents=True, exist_ok=True)
     scene_cfg["debug_dir"] = str(out_prefix.parent)
 
-    # Run only scene generation
     print("\n=== Running scene generation (may take a while on CPU) ===")
     generator = SceneGenerator(scene_cfg)
     scene_out = generator.generate(sketch, text_prompt)
@@ -123,7 +118,6 @@ def main():
     else:
         print("Reference image not generated (save_reference=false in config).")
 
-    # Build side-by-side comparison: sketch | stylized | reference
     stylized_bgr = _to_bgr(scene_out.stylized_image)
     h, w = stylized_bgr.shape[:2]
     sketch_bgr = cv2.resize(_to_bgr(np.asarray(sketch)), (w, h))

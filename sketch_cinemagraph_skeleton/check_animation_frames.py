@@ -14,7 +14,6 @@ import numpy as np
 
 
 def load_frames(path: str):
-    """Load all frames from a GIF or MP4 into a list of uint8 HxWxC arrays."""
     p = Path(path)
     if not p.exists():
         raise FileNotFoundError(f"File not found: {path}")
@@ -42,7 +41,6 @@ def load_frames(path: str):
 
 
 def frame_mad(a, b):
-    """Mean absolute difference between two frames (float)."""
     return float(np.mean(np.abs(a.astype(np.float32) - b.astype(np.float32))))
 
 
@@ -56,7 +54,6 @@ def analyze(path: str):
         print("[Warning] Only 1 frame — cannot analyse motion.")
         return
 
-    # --- adjacent frame MAD ---
     diffs = [frame_mad(frames[i], frames[i + 1]) for i in range(n - 1)]
 
     min_diff = min(diffs)
@@ -67,14 +64,12 @@ def analyze(path: str):
     print(f"Adjacent-frame MAD  →  min={min_diff:.4f}  max={max_diff:.4f}  mean={mean_diff:.4f}")
     print(f"Minimum-diff pair   →  frames [{min_idx}] and [{min_idx + 1}]  (MAD={min_diff:.4f})")
 
-    # --- warn on identical / near-identical adjacent frames ---
     for i, d in enumerate(diffs):
         if d == 0.0:
             print(f"[Warning] Frames {i} and {i + 1} are COMPLETELY IDENTICAL (MAD=0).")
         elif d < 0.5:
             print(f"[Notice]  Frames {i} and {i + 1} are nearly identical (MAD={d:.4f}).")
 
-    # --- first vs last frame ---
     first_last_mad = frame_mad(frames[0], frames[-1])
     print(f"\nFirst vs last frame MAD: {first_last_mad:.4f}")
 
@@ -88,7 +83,6 @@ def analyze(path: str):
     else:
         print("[OK]      First and last frames are distinct — loop boundary should be smooth.")
 
-    # --- per-frame MAD bar chart ---
     print("\nPer-frame MAD:")
     for i, d in enumerate(diffs):
         bar_len = int(d / max(max_diff, 1e-6) * 40)

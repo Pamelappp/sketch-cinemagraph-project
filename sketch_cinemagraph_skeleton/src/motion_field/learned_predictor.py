@@ -14,26 +14,7 @@ _DEFAULT_INPUT_SIZE = 256
 
 
 class LearnedMotionPredictor:
-    """
-    Sketch-conditioned neural motion predictor.
-
-    The network is the lightweight ``MotionUNet`` defined in
-    ``src.motion_field.networks``; it is trained by
-    ``scripts/train_learned_predictor.py`` and saved as a PyTorch checkpoint.
-
-    Configuration keys (all optional):
-
-    - ``checkpoint_path``: path to the trained ``.pt`` file. If omitted or
-      missing, ``predict`` raises ``RuntimeError`` with instructions for
-      generating one.
-    - ``device``: explicit torch device string (``"cuda"``, ``"mps"`` or
-      ``"cpu"``). Defaults to the best available device.
-    - ``input_size``: spatial resolution the network was trained at (default
-      256). Inputs are resized to this resolution before inference and the
-      predicted flow is rescaled back to the original size.
-    - ``base_channels``: width multiplier of the U-Net (default 64). Must
-      match the trained checkpoint.
-    """
+    """Sketch-conditioned neural motion predictor (MotionUNet)."""
 
     def __init__(self, cfg: Dict[str, Any] | None = None) -> None:
         self.cfg: Dict[str, Any] = dict(cfg) if cfg else {}
@@ -51,21 +32,10 @@ class LearnedMotionPredictor:
         fluid_mask: np.ndarray,
         motion_sketch: np.ndarray,
     ) -> np.ndarray:
-        """
-        Predict a dense motion field from the three conditioning inputs.
-
-        Args:
-            reference_image: H x W x 3 uint8 RGB landscape image.
-            fluid_mask: H x W binary mask (uint8 0/255 or float 0/1).
-            motion_sketch: H x W x 3 uint8 RGB motion sketch with white-to-black
-                gradient strokes.
-
-        Returns:
-            H x W x 2 float32 dense motion field with channels (dx, dy).
-        """
+        """Return H×W×2 (dx, dy) dense flow, zeroed outside the fluid mask."""
         self._ensure_loaded()
 
-        import torch  # local import keeps the module importable without torch
+        import torch
 
         original_h, original_w = reference_image.shape[:2]
         size = self.input_size
@@ -85,7 +55,6 @@ class LearnedMotionPredictor:
         flow_low = flow_low.squeeze(0).permute(1, 2, 0).cpu().numpy().astype(np.float32)
         flow_full = _resize_flow(flow_low, original_h, original_w)
 
-        # Hard-enforce mask boundary so background pixels stay perfectly static.
         if fluid_mask.ndim == 3:
             mask_2d = fluid_mask[:, :, 0]
         else:
@@ -94,7 +63,6 @@ class LearnedMotionPredictor:
         return flow_full * mask_factor
 
     def load_weights(self, checkpoint_path: str) -> None:
-        """Load (or replace) the underlying model weights from a checkpoint file."""
         self.checkpoint_path = checkpoint_path
         with self._lock:
             self._model = None
@@ -102,13 +70,9 @@ class LearnedMotionPredictor:
         self._ensure_loaded()
 
     def train_step(self, batch):
-        """Training is performed by ``scripts/train_learned_predictor.py``."""
         raise NotImplementedError(
-            "LearnedMotionPredictor.train_step is not exposed at runtime; "
-            "use scripts/train_learned_predictor.py to train the U-Net."
+            "Training is handled by scripts/train_learned_predictor.py."
         )
-
-    # ------------------------------------------------------------------ utils
 
     def _ensure_loaded(self) -> None:
         if self._model is not None:

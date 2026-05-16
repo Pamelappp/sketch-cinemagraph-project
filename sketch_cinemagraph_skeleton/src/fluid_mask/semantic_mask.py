@@ -1,16 +1,4 @@
-"""Build a coarse semantic mask from user sketches.
-
-Core logic (baseline paper §4):
-  1. Connected-component segmentation of the structural sketch → candidate regions.
-  2. Structural lines are removed from the motion sketch (black pixels → white).
-  3. Motion-stroke overlap selects which candidate regions are fluid.
-
-Engineering supplement (not in baseline):
-  When a reference image is available, colour-based expansion via CIE-LAB
-  similarity supplements the region-based mask when sketch lines are open/partial.
-  The final mask is still constrained by the Grounded-SAM intersection in
-  postprocess.combine_masks().
-"""
+"""Build a coarse semantic mask from user sketches."""
 
 from __future__ import annotations
 
@@ -22,22 +10,14 @@ import numpy as np
 
 _INK_THRESHOLD = 200
 _STROKE_THRESHOLD = 250
-_STRUCT_BLACK_THRESHOLD = 10   # near-pure-black pixels are structural ink
+_STRUCT_BLACK_THRESHOLD = 10
 _MIN_REGION_FRACTION = 0.001
 _MIN_OVERLAP_PIXELS = 5
-
-# Colour-distance threshold (in CIE-LAB ΔE) for the image-aware expansion.
 _LAB_DISTANCE_THRESHOLD = 35.0
 
 
 def clean_motion_sketch(structural_sketch, motion_sketch):
-    """
-    Remove structural sketch lines from the motion sketch (baseline paper §4).
-
-    The paper: structural pixels I(p) = (0,0,0) are identified, the structural
-    mask is dilated 3×3, and those pixels are replaced with white in the motion
-    sketch so only the white-to-black gradient motion strokes remain.
-    """
+    """Replace structural ink pixels in the motion sketch with white."""
     struct_gray = _to_grayscale(structural_sketch)
     struct_mask = (struct_gray < _STRUCT_BLACK_THRESHOLD).astype(np.uint8)
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
@@ -53,27 +33,11 @@ def clean_motion_sketch(structural_sketch, motion_sketch):
 
 def build_semantic_mask(structural_sketch, motion_sketch,
                         reference_image=None, debug_dir=None):
-    """
-    Create a preliminary fluid-region mask based on sketch-defined motion areas.
-
-    Baseline logic:
-    1. Structural lines are removed from the motion sketch so gradient strokes
-       are isolated (clean_motion_sketch).
-    2. Connected-component segmentation of the structural sketch produces
-       candidate regions.
-    3. Motion-stroke overlap selects which candidate regions are fluid.
-
-    Engineering supplement (not baseline):
-    - If colour expansion covers significantly more area than the region-based
-      mask, they are merged (handles open/partial sketch lines).
-    - Empty mask is returned (with a warning) instead of a stroke-dilation
-      fallback that would include structural lines in the semantic mask.
-    """
+    """Create a preliminary fluid-region mask from sketch-defined motion areas."""
     structural_array = _to_uint8(structural_sketch)
     motion_array = _to_uint8(motion_sketch)
     motion_array = _resize_to(motion_array, structural_array.shape[:2])
 
-    # ── Step 1: remove structural lines from motion sketch ────────────────────
     cleaned_motion = clean_motion_sketch(structural_array, motion_array)
 
     if debug_dir is not None:
@@ -84,7 +48,6 @@ def build_semantic_mask(structural_sketch, motion_sketch,
         _strokes = ((_gray < _STROKE_THRESHOLD).astype(np.uint8)) * 255
         cv2.imwrite(str(d / "debug_motion_stroke.png"), _strokes)
 
-    # ── Step 2: extract candidate regions from structural sketch ──────────────
     candidate_regions = extract_candidate_regions(structural_array)
 
     if debug_dir is not None:
@@ -105,10 +68,8 @@ def build_semantic_mask(structural_sketch, motion_sketch,
         print("[Warning] build_semantic_mask: returning empty semantic mask.")
         return np.zeros(structural_array.shape[:2], dtype=np.uint8)
 
-    # ── Step 3: select regions overlapping cleaned motion strokes ─────────────
     mask = associate_motion_with_regions(candidate_regions, cleaned_motion)
 
-    # ── Engineering supplement: colour expansion for open sketch lines ────────
     if reference_image is not None:
         ref = _to_uint8(reference_image)
         ref = _resize_to(ref, structural_array.shape[:2])
@@ -125,7 +86,6 @@ def build_semantic_mask(structural_sketch, motion_sketch,
         print("[Warning] build_semantic_mask: no candidate regions overlapped motion strokes — returning empty mask.")
         return np.zeros(structural_array.shape[:2], dtype=np.uint8)
 
-    # ── Sanity check: diagnose obviously-wrong masks ──────────────────────────
     total = mask.size
     fg = int((mask > 0).sum())
     ratio = fg / total if total > 0 else 0.0
@@ -144,17 +104,7 @@ def build_semantic_mask(structural_sketch, motion_sketch,
 
 
 def extract_candidate_regions(structural_sketch):
-    """
-    Identify candidate semantic regions separated by ink strokes in the
-    structural sketch.
-
-    All regions above a minimum area are kept as candidates.  The downstream
-    ``associate_motion_with_regions`` function picks which are fluid based on
-    cleaned motion-stroke overlap — a region with no strokes is not selected
-    regardless of size.
-
-    Returns a 2-D int32 label image. Label 0 marks ink pixels and tiny blobs.
-    """
+    """Return a label image of regions separated by ink strokes (label 0 = ink/noise)."""
     gray = _to_grayscale(structural_sketch)
     height, width = gray.shape
     total_pixels = height * width
@@ -184,12 +134,7 @@ def extract_candidate_regions(structural_sketch):
 
 
 def associate_motion_with_regions(candidate_regions, cleaned_motion_sketch):
-    """
-    Decide which candidate regions are fluid based on motion-stroke coverage.
-
-    Expects a *cleaned* motion sketch (structural lines already removed via
-    clean_motion_sketch) so only gradient motion strokes are detected.
-    """
+    """Select candidate regions whose pixels overlap motion strokes."""
     gray = _to_grayscale(cleaned_motion_sketch)
     stroke = (gray < _STROKE_THRESHOLD).astype(np.uint8)
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
@@ -225,13 +170,7 @@ def _expand_mask_by_colour(
     cleaned_motion_sketch: np.ndarray,
     lab_threshold: float = _LAB_DISTANCE_THRESHOLD,
 ) -> np.ndarray | None:
-    """
-    Grow the fluid mask from stroke seeds to visually-similar pixels in the
-    reference image (engineering supplement, not baseline logic).
-
-    Uses CIE-LAB colour similarity: separate thresholds for L (brightness)
-    and AB (chrominance) so water/sky colours are matched robustly.
-    """
+    """Grow the fluid mask from stroke seeds to LAB-similar pixels in the reference."""
     if reference_image.ndim == 2:
         reference_image = cv2.cvtColor(reference_image, cv2.COLOR_GRAY2RGB)
 

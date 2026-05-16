@@ -1,12 +1,4 @@
-"""T2C Direction Flow Predictor — inference wrapper.
-
-Replaces the RBF sparse-to-dense propagation step with a learned
-T2C motion-direction network when a pretrained checkpoint is available.
-
-Usage (standalone):
-    predictor = T2CFlowPredictor("checkpoints/.../latest_net_G.pth")
-    flow = predictor.predict(image, mask, motion_sketch)   # H×W×2 float32
-"""
+"""T2C Direction Flow Predictor — inference wrapper."""
 
 from __future__ import annotations
 
@@ -17,23 +9,11 @@ from typing import Optional
 import cv2
 import numpy as np
 
-_INPUT_SIZE = 512   # network trained at 512×512; output is 256×256 (half-res)
+_INPUT_SIZE = 512  # network trained at 512; output is 256 (half-res), rescaled by predict().
 
 
 class T2CFlowPredictor:
-    """Neural flow predictor using T2C motion-direction pretrained weights.
-
-    The network takes a 6-channel input (RGB image || RGB sketch) normalised
-    to [-1, 1] and outputs a (dx, dy) flow field at half input resolution,
-    which is then rescaled to the original image size.
-
-    Falls back gracefully when the checkpoint is absent or torch is missing
-    — callers should check ``is_available()`` before calling ``predict()``.
-
-    Args:
-        checkpoint_path: path to motion-direction-pretrained/latest_net_G.pth
-        device: "cuda", "mps", or "cpu"; auto-detected when None
-    """
+    """Neural flow predictor using T2C motion-direction pretrained weights."""
 
     def __init__(
         self,
@@ -46,37 +26,26 @@ class T2CFlowPredictor:
         self._model = None
         self._device: Optional["torch.device"] = None  # type: ignore[name-defined]
 
-    # ── public API ────────────────────────────────────────────────────────────
-
     def predict(
         self,
         reference_image: np.ndarray,
         fluid_mask: np.ndarray,
         motion_sketch: np.ndarray,
     ) -> np.ndarray:
-        """Return a dense H×W×2 (dx, dy) flow; zero outside the fluid mask.
-
-        Args:
-            reference_image: H×W×3 uint8 RGB stylised landscape
-            fluid_mask:      H×W (or H×W×1) uint8 binary mask
-            motion_sketch:   H×W×3 uint8 RGB motion-stroke sketch
-
-        Returns:
-            H×W×2 float32 dense motion field
-        """
+        """Return H×W×2 (dx, dy) dense flow, zeroed outside the fluid mask."""
         self._ensure_loaded()
-        import torch  # local — keeps module importable without torch
+        import torch
 
         orig_h, orig_w = reference_image.shape[:2]
 
-        img_t = _to_tensor(_INPUT_SIZE, reference_image)   # (3, S, S)
-        skc_t = _to_tensor(_INPUT_SIZE, motion_sketch)     # (3, S, S)
+        img_t = _to_tensor(_INPUT_SIZE, reference_image)
+        skc_t = _to_tensor(_INPUT_SIZE, motion_sketch)
         x = torch.from_numpy(
-            np.concatenate([img_t, skc_t], axis=0)[None]   # (1, 6, S, S)
+            np.concatenate([img_t, skc_t], axis=0)[None]
         ).to(self._device)
 
         with torch.no_grad():
-            flow_raw = self._model(x)          # (1, 2, S/2, S/2)
+            flow_raw = self._model(x)
 
         flow_np = (
             flow_raw.squeeze(0).permute(1, 2, 0).cpu().numpy().astype(np.float32)
@@ -88,7 +57,6 @@ class T2CFlowPredictor:
         return flow_full
 
     def is_available(self) -> bool:
-        """True when the checkpoint file exists and torch can be imported."""
         if not self.checkpoint_path:
             return False
         if not Path(self.checkpoint_path).exists():
@@ -98,8 +66,6 @@ class T2CFlowPredictor:
             return True
         except ImportError:
             return False
-
-    # ── internals ─────────────────────────────────────────────────────────────
 
     def _ensure_loaded(self) -> None:
         if self._model is not None:
@@ -123,8 +89,6 @@ class T2CFlowPredictor:
             self._device = torch.device(dev)
 
 
-# ── helpers ───────────────────────────────────────────────────────────────────
-
 def _best_device() -> str:
     try:
         import torch
@@ -146,7 +110,6 @@ def _to_tensor(size: int, img: np.ndarray) -> np.ndarray:
 
 
 def _resize_flow(flow: np.ndarray, target_h: int, target_w: int) -> np.ndarray:
-    """Resize and scale a flow field to a larger spatial target."""
     src_h, src_w = flow.shape[:2]
     if src_h == target_h and src_w == target_w:
         return flow

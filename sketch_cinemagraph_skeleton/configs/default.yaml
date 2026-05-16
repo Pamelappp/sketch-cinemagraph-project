@@ -43,12 +43,12 @@ scene:
     controlnet_conditioning_scale: 1.10
 
 motion_field:
-  t2c_checkpoint: checkpoints/checkpoints/motion-direction-pretrained/latest_net_G.pth
+  t2c_checkpoint: ../data/raw/t2c_pretrained/checkpoints/motion-direction-pretrained/latest_net_G.pth
 
 motion:
   foreground_protection_dilation: 20   # px to expand protection zone beyond detected hole
   motion_boundary_feather: 20          # px to feather flow transition beyond protection zone
-  max_displacement: 0.8                # max px per Euler frame step
+  max_displacement: 2.0                # max px per Euler frame step
   border_protection_margin: 30         # px from image edge kept completely static
   mask_edge_erosion: 6                 # erode safe_moving_mask to pull away from all edges
   shoreline_protection_band: 5        # protect this many px at the top edge of water region
